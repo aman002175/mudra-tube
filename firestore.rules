@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Users Collection: Profile creation, balance reads, and updates
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if true;
+    }
+
+    // 2. Withdrawals Collection: Pending payout ticket creation and admin status resolution
+    match /withdrawals/{withdrawalId} {
+      allow read: if true;
+      allow create: if request.resource.data.status == "pending" && request.resource.data.coins >= 300;
+      allow update: if true;
+    }
+
+    // 3. Promotions Collection: Live channel tasks and member count increments
+    match /promotions/{promoId} {
+      allow read: if true;
+      allow create, update: if true;
+    }
+
+    // 4. Packages Collection: Predefined promotional bundles
+    match /packages/{pkgId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // 5. Global Configuration: Minimum withdrawal threshold, coin conversion rates, and killswitches
+    match /global_config/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // 6. Transactions Collection: Immutable balance audit log
+    match /transactions/{txId} {
+      allow read: if true;
+      allow create: if true;
+    }
+  }
+}
