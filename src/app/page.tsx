@@ -250,8 +250,8 @@ export default function MudraTubeApp() {
         }}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 px-4 py-4 space-y-4">
+      {/* Scrollable Middle Content Area */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 pb-28 space-y-4">
         {/* Tab 1: Tasks / Home */}
         {currentTab === "tasks" && (
           <div className="space-y-4 animate-in fade-in duration-200">
