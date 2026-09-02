@@ -14,7 +14,8 @@ declare global {
         ready: () => void;
         expand: () => void;
         close: () => void;
-        enableClosingConfirmation: () => void;
+        enableClosingConfirmation?: () => void;
+        disableClosingConfirmation?: () => void;
         setHeaderColor: (color: string) => void;
         setBackgroundColor: (color: string) => void;
         openTelegramLink: (url: string) => void;
@@ -40,7 +41,10 @@ export function useTelegram() {
       tg.ready();
       tg.expand();
       try {
-        tg.enableClosingConfirmation();
+        // Disable annoying "Changes may not be saved" popup when closing the Mini App
+        if (tg.disableClosingConfirmation) {
+          tg.disableClosingConfirmation();
+        }
         tg.setHeaderColor("#F0F9FF");
         tg.setBackgroundColor("#F0F9FF");
       } catch (e) {
@@ -51,21 +55,11 @@ export function useTelegram() {
         setUser(tg.initDataUnsafe.user);
         setIsTelegram(true);
       } else {
-        // Fallback simulated user for browser testing
-        setUser({
-          id: 92837461,
-          first_name: "Demo Earner",
-          username: "demo_user",
-        });
+        setUser(null);
         setIsTelegram(false);
       }
     } else {
-      // Browser preview fallback
-      setUser({
-        id: 92837461,
-        first_name: "Demo Earner",
-        username: "demo_user",
-      });
+      setUser(null);
       setIsTelegram(false);
     }
     setIsReady(true);

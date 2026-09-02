@@ -48,6 +48,9 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
   const [contactInput, setContactInput] = useState(user.username ? `@${user.username}` : "");
   const [utrInput, setUtrInput] = useState("");
   const [botAdminConfirmed, setBotAdminConfirmed] = useState(false);
+  const [isVerifyingBotAdmin, setIsVerifyingBotAdmin] = useState(false);
+  const [botAdminVerified, setBotAdminVerified] = useState(false);
+  const [botAdminError, setBotAdminError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
@@ -80,6 +83,38 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
       `Hello Admin! I have paid ₹${effectivePrice} for Channel Promotion.\n\nChannel: ${channelInput || "N/A"}\nPlan: ${effectiveTitle}\nMembers: ${effectiveMembers}\nUser ID: ${user.user_id}\nUTR: ${utrInput || "Sending screenshot..."}`
     );
     window.open(`https://t.me/${adminTgHandle}?text=${text}`, "_blank");
+  };
+
+  const handleVerifyBotAdmin = async () => {
+    if (!channelInput.trim()) {
+      setBotAdminError("Kripya pehle apne channel ka @username ya link dalein.");
+      return;
+    }
+
+    setIsVerifyingBotAdmin(true);
+    setBotAdminError(null);
+
+    try {
+      const res = await fetch("/api/tasks/verify-bot-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: channelInput.trim() }),
+      });
+      const data = await res.json();
+      if (data.success && data.isAdmin) {
+        setBotAdminVerified(true);
+        setBotAdminConfirmed(true);
+        setBotAdminError(null);
+      } else {
+        setBotAdminVerified(false);
+        setBotAdminConfirmed(false);
+        setBotAdminError(data.error || `Bot ${botHandle} abhi channel me admin nahi hai. Kripya use admin banayein.`);
+      }
+    } catch {
+      setBotAdminError("Telegram API connection error. Kripya check karein ki bot admin bana diya gaya hai.");
+    } finally {
+      setIsVerifyingBotAdmin(false);
+    }
   };
 
   const handlePromoteSubmit = async (e: React.FormEvent) => {
@@ -310,17 +345,54 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
           />
         </div>
 
-        {/* Bot Admin Instruction */}
-        <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-300/80 space-y-2 text-xs">
+        {/* Bot Admin Requirement & Live Verification */}
+        <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-300 space-y-3 text-xs">
           <div className="flex items-start gap-2 text-amber-950">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold">Required Step:</span>
+              <span className="font-bold">Zaroori Step (Channel Admin Verification):</span>
               <p className="text-[11px] text-amber-900 mt-0.5 leading-tight">
-                Add our bot <strong className="font-mono">{botHandle}</strong> as an <strong>Administrator</strong> in your channel before submitting so our API can verify member joins.
+                Hamare bot <strong className="font-mono">{botHandle}</strong> ko apne channel me <strong>Administrator</strong> banayein taaki system member joins ko automatically verify kar sake.
               </p>
             </div>
           </div>
+
+          {/* Direct 1-Click Action & Live Verify Buttons */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <a
+              href={`https://t.me/${botHandle.replace("@", "")}?startchannel=true&admin=invite_users+manage_chat`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 py-2 px-3 rounded-xl btn-tactile-sky text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>1-Click: Add {botHandle} as Admin</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={handleVerifyBotAdmin}
+              disabled={isVerifyingBotAdmin || !channelInput.trim()}
+              className="py-2 px-3 rounded-xl bg-white border border-sky-300 text-sky-900 font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-sky-50 active:scale-95 disabled:opacity-50"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-sky-600" />
+              <span>{isVerifyingBotAdmin ? "Checking Telegram..." : "Live Verify Admin"}</span>
+            </button>
+          </div>
+
+          {/* Verification Status Feedback */}
+          {botAdminVerified && (
+            <div className="p-2.5 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold text-xs flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>✓ Verified! {botHandle} is confirmed as Administrator.</span>
+            </div>
+          )}
+
+          {botAdminError && (
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-semibold">
+              ❌ {botAdminError}
+            </div>
+          )}
 
           <label className="flex items-center gap-2 pt-1 cursor-pointer">
             <input
@@ -331,7 +403,7 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
               className="rounded text-sky-600 focus:ring-sky-400"
             />
             <span className="text-[11px] font-bold text-amber-950">
-              I have added {botHandle} as Channel Admin
+              Maine {botHandle} ko Channel Admin bana diya hai
             </span>
           </label>
         </div>
