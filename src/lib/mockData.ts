@@ -1,10 +1,22 @@
-import { ChannelTask, GlobalConfig, PromoPackage, UserProfile, WithdrawalRequest } from "@/types";
+import {
+  ChannelTask,
+  GlobalConfig,
+  PromoPackage,
+  UserProfile,
+  WithdrawalRequest,
+  AdminPaymentMethod,
+  SupportChatMessage,
+} from "@/types";
 
 export const initialConfig: GlobalConfig = {
   min_withdrawal_coins: 300,
   coins_per_inr: 300,
   coins_per_ton: 50000,
   default_task_reward: 50,
+  admin_profit_cut_percent: 60, // 60% Admin, 40% User Pool
+  admin_upi_id: "admin@paytm",
+  admin_telegram_handle: "@admin_mudratube",
+  bot_username: "@MudraTube_bot",
   channel_tasks_enabled: true,
   offerwalls_enabled: true,
   maintenance_mode: false,
@@ -112,3 +124,50 @@ export const initialMockUser: UserProfile = {
   is_banned: false,
   created_at: new Date().toISOString(),
 };
+
+export const initialPaymentMethods: AdminPaymentMethod[] = [
+  {
+    id: "pm_upi_1",
+    type: "UPI",
+    label: "Primary PhonePe / GPay UPI",
+    address_or_vpa: "mudratube@paytm",
+    is_active: true,
+  },
+  {
+    id: "pm_ton_1",
+    type: "TON",
+    label: "Official TON Treasury",
+    address_or_vpa: "EQDa4Vfvy2qPkW_x09yJ6V19nQW-29eL13098",
+    is_active: true,
+  },
+];
+
+export const initialSupportMessages: SupportChatMessage[] = [
+  {
+    id: "msg_1",
+    user_id: "88291024",
+    user_name: "Rahul Verma",
+    sender: "user",
+    message: "Namaste Admin sir! Mera withdrawal kab approve hoga?",
+    timestamp: "2026-09-02T22:30:00Z",
+    read: false,
+  },
+  {
+    id: "msg_2",
+    user_id: "88291024",
+    user_name: "Rahul Verma",
+    sender: "admin",
+    message: "Namaste Rahul! Aapka UPI UTR verify ho gaya hai, agle 30 minute me credit ho jayega.",
+    timestamp: "2026-09-02T22:35:00Z",
+    read: true,
+  },
+  {
+    id: "msg_3",
+    user_id: "77491204",
+    user_name: "Sam Crypto",
+    sender: "user",
+    message: "Sir promotion bundle buy kiya tha, live kab hoga?",
+    timestamp: "2026-09-02T23:10:00Z",
+    read: false,
+  },
+];

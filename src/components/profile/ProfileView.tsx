@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useState } from "react";
-import { User, Copy, CheckCircle, Share2, ShieldCheck, Coins, Award } from "lucide-react";
+import { User, Copy, CheckCircle, Share2, ShieldCheck, Coins, Award, MessageSquare, ChevronRight } from "lucide-react";
 import { UserProfile } from "@/types";
 
 interface ProfileViewProps {
   user: UserProfile;
+  onSupportClick?: () => void;
 }
 
-export const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
+export const ProfileView: React.FC<ProfileViewProps> = ({ user, onSupportClick }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopyId = () => {
@@ -26,17 +27,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
         </div>
 
         <h3 className="text-base font-black text-sky-950 mt-3">
-          {user.first_name || user.username || "Telegram User"}
+          {user.first_name || user.username || "Telegram Earner"}
         </h3>
-        <p className="text-xs font-semibold text-sky-700/80">
-          @{user.username || "tg_user"}
-        </p>
+        <p className="text-xs text-sky-700/80 font-medium">@{user.username || "anonymous"}</p>
 
-        <div className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full bg-white/70 border border-sky-200/80 text-[11px] font-mono text-sky-900">
-          <span>ID: {user.user_id}</span>
+        <div className="mt-3 inline-flex items-center gap-2 bg-white/70 px-3 py-1.5 rounded-xl border border-sky-200 text-xs font-mono">
+          <span className="text-sky-600 font-bold">ID:</span>
+          <span className="font-bold text-sky-950">{user.user_id}</span>
           <button
             onClick={handleCopyId}
-            className="p-0.5 text-sky-600 hover:text-sky-800"
+            className="text-sky-600 hover:text-sky-900 active:scale-95 ml-1"
+            title="Copy User ID"
           >
             {copied ? (
               <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
@@ -46,6 +47,27 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
           </button>
         </div>
       </div>
+
+      {/* 24/7 Official Support Chat Button */}
+      {onSupportClick && (
+        <button
+          onClick={onSupportClick}
+          className="w-full p-4 rounded-2xl glass-card border border-sky-300/80 flex items-center justify-between hover:bg-white/80 active:scale-98 transition-all shadow-sm"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center">
+              <MessageSquare className="w-5 h-5" />
+            </div>
+            <div className="text-left">
+              <h4 className="text-xs font-black text-sky-950">24/7 Admin Support Desk</h4>
+              <p className="text-[11px] text-sky-700/80">
+                Direct 1-to-1 private chat with the administrator
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-sky-600" />
+        </button>
+      )}
 
       {/* Stats Breakdown */}
       <div className="grid grid-cols-2 gap-3">

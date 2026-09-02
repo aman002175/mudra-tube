@@ -11,6 +11,7 @@ import { PromoteView } from "@/components/promote/PromoteView";
 import { WalletView } from "@/components/wallet/WalletView";
 import { ProfileView } from "@/components/profile/ProfileView";
 import { WithdrawModal } from "@/components/wallet/WithdrawModal";
+import { SupportChatModal } from "@/components/support/SupportChatModal";
 import { useTelegram } from "@/hooks/useTelegram";
 import {
   initialConfig,
@@ -18,8 +19,16 @@ import {
   initialPackages,
   initialTasks,
   initialWithdrawals,
+  initialSupportMessages,
 } from "@/lib/mockData";
-import { ChannelTask, GlobalConfig, PromoPackage, UserProfile, WithdrawalRequest } from "@/types";
+import {
+  ChannelTask,
+  GlobalConfig,
+  PromoPackage,
+  UserProfile,
+  WithdrawalRequest,
+  SupportChatMessage,
+} from "@/types";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
 
@@ -34,6 +43,8 @@ export default function MudraTubeApp() {
   const [packages, setPackages] = useState<PromoPackage[]>(initialPackages);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>(initialWithdrawals);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
 
   // Sync Telegram User & Firestore Database
   useEffect(() => {
@@ -217,6 +228,8 @@ export default function MudraTubeApp() {
   const handleSubmitPromotion = async (data: {
     channel: string;
     members: number;
+    price_inr: number;
+    utr_number: string;
     contact: string;
     packageId?: string;
   }): Promise<boolean> => {
@@ -224,6 +237,7 @@ export default function MudraTubeApp() {
     if (isFirebaseConfigured) {
       addDoc(collection(db, "promotions"), {
         ...data,
+        user_id: user.user_id,
         status: "pending",
         created_at: new Date().toISOString(),
       });
@@ -239,6 +253,26 @@ export default function MudraTubeApp() {
     openLink(cpaUrl);
   };
 
+  // Send Message in 1-to-1 Support Chat
+  const handleSendSupportMessage = (text: string) => {
+    triggerHaptic("light");
+    const newMsg: SupportChatMessage = {
+      id: `msg_${Date.now()}`,
+      user_id: user.user_id,
+      user_name: user.first_name || user.username || "User",
+      sender: "user",
+      message: text,
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
+    setSupportMessages((prev) => [...prev, newMsg]);
+
+    if (isFirebaseConfigured) {
+      addDoc(collection(db, "support_messages"), newMsg);
+    }
+    triggerNotificationHaptic("success");
+  };
+
   return (
     <MobileShell>
       {/* Sticky Header */}
@@ -247,6 +281,10 @@ export default function MudraTubeApp() {
         onCoinClick={() => {
           triggerHaptic("light");
           setIsWithdrawOpen(true);
+        }}
+        onSupportClick={() => {
+          triggerHaptic("light");
+          setIsSupportOpen(true);
         }}
       />
 
@@ -291,6 +329,8 @@ export default function MudraTubeApp() {
           <div className="animate-in fade-in duration-200">
             <PromoteView
               packages={packages}
+              user={user}
+              config={config}
               onSubmitPromotion={handleSubmitPromotion}
             />
           </div>
@@ -308,9 +348,15 @@ export default function MudraTubeApp() {
           </div>
         )}
 
-        {/* Tab 5: Profile & Account (Admin tab completely removed) */}
+        {/* Tab 5: Profile & Account */}
         {currentTab === "profile" && (
-          <ProfileView user={user} />
+          <ProfileView
+            user={user}
+            onSupportClick={() => {
+              triggerHaptic("light");
+              setIsSupportOpen(true);
+            }}
+          />
         )}
       </div>
 
@@ -328,6 +374,15 @@ export default function MudraTubeApp() {
         user={user}
         config={config}
         onSubmitWithdrawal={handleSubmitWithdrawal}
+      />
+
+      {/* 1-to-1 Private Admin Support Chat Modal */}
+      <SupportChatModal
+        isOpen={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+        user={user}
+        messages={supportMessages}
+        onSendMessage={handleSendSupportMessage}
       />
     </MobileShell>
   );
