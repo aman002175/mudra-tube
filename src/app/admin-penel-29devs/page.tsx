@@ -81,18 +81,27 @@ export default function AdminPortalPage() {
   const [newTaskReward, setNewTaskReward] = useState(50);
 
   // Auth Submit
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Default master admin credentials (can be overridden via env)
-    if (
-      (adminUsername === "admin29" && adminPassword === "admin123") ||
-      (adminUsername === "admin" && adminPassword === "mudratube2026")
-    ) {
-      setIsAuthenticated(true);
-      setAuthError("");
-    } else {
-      setAuthError("Invalid Admin credentials. (Default: admin / mudratube2026 or admin29 / admin123)");
+    setAuthError("");
+    try {
+      const res = await fetch("/api/admin/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: adminUsername, password: adminPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsAuthenticated(true);
+        setAuthError("");
+        return;
+      }
+    } catch {
+      setAuthError("Server connection error during authentication.");
+      return;
     }
+
+    setAuthError("Galat Username ya Password! Kripya sahi credentials dalein.");
   };
 
   const handleCopy = (text: string, id: string) => {
@@ -202,10 +211,10 @@ export default function AdminPortalPage() {
               <input
                 type="text"
                 required
-                placeholder="admin"
+                placeholder="Enter admin username"
                 value={adminUsername}
                 onChange={(e) => setAdminUsername(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-white/80 border border-sky-200 text-sm text-sky-950 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                className="w-full px-4 py-2.5 rounded-xl bg-white/80 border border-sky-200 text-sm text-sky-950 focus:outline-none focus:ring-2 focus:ring-sky-400 font-medium"
               />
             </div>
 
@@ -219,7 +228,7 @@ export default function AdminPortalPage() {
                 placeholder="••••••••••••"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-white/80 border border-sky-200 text-sm text-sky-950 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                className="w-full px-4 py-2.5 rounded-xl bg-white/80 border border-sky-200 text-sm text-sky-950 focus:outline-none focus:ring-2 focus:ring-sky-400 font-medium"
               />
             </div>
 
@@ -231,10 +240,6 @@ export default function AdminPortalPage() {
               <span>Enter Secure Dashboard</span>
             </button>
           </form>
-
-          <div className="p-3 rounded-xl bg-sky-100/60 border border-sky-200/80 text-[11px] text-sky-800 text-center">
-            Demo Credentials: <span className="font-bold">admin</span> / <span className="font-bold">mudratube2026</span>
-          </div>
         </div>
       </div>
     );
