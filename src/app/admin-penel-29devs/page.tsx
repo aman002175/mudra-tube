@@ -19,6 +19,12 @@ import {
   AlertTriangle,
   LogOut,
   ChevronRight,
+  Edit2,
+  Trash2,
+  X,
+  Save,
+  Crown,
+  Star,
 } from "lucide-react";
 import { ChannelTask, GlobalConfig, PromoPackage, UserProfile, WithdrawalRequest } from "@/types";
 import { initialConfig, initialMockUser, initialPackages, initialTasks, initialWithdrawals } from "@/lib/mockData";
@@ -79,6 +85,17 @@ export default function AdminPortalPage() {
   const [newTaskUsername, setNewTaskUsername] = useState("");
   const [newTaskLink, setNewTaskLink] = useState("");
   const [newTaskReward, setNewTaskReward] = useState(50);
+  const [newTaskIsPinned, setNewTaskIsPinned] = useState(false);
+  const [newTaskBadgeLabel, setNewTaskBadgeLabel] = useState("TOP #1 SPONSOR");
+  // Package form & edit state
+  const [isPackageFormOpen, setIsPackageFormOpen] = useState(false);
+  const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
+  const [pkgTitle, setPkgTitle] = useState("");
+  const [pkgMembers, setPkgMembers] = useState(1000);
+  const [pkgPrice, setPkgPrice] = useState(1500);
+  const [pkgBadge, setPkgBadge] = useState("");
+  const [pkgPopular, setPkgPopular] = useState(false);
+  const [pkgFeatures, setPkgFeatures] = useState("Real Telegram Users, Fast Delivery, 24/7 Support");
 
   // Auth Submit
   const handleLogin = async (e: React.FormEvent) => {
@@ -171,6 +188,8 @@ export default function AdminPortalPage() {
       reward_coins: newTaskReward,
       target_members: 1000,
       joined_count: 0,
+      is_pinned: newTaskIsPinned,
+      badge_label: newTaskBadgeLabel,
       status: "active",
     };
 
@@ -178,6 +197,80 @@ export default function AdminPortalPage() {
     setNewTaskTitle("");
     setNewTaskUsername("");
     setNewTaskLink("");
+    setNewTaskReward(50);
+    setNewTaskIsPinned(false);
+    setNewTaskBadgeLabel("TOP #1 SPONSOR");
+  };
+
+  const handleTogglePinTask = (taskId: string) => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, is_pinned: !t.is_pinned } : t
+      )
+    );
+  };
+
+  const handleSavePackage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pkgTitle || !pkgPrice) return;
+
+    const featArr = pkgFeatures
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (editingPackageId) {
+      setPackages((prev) =>
+        prev.map((p) =>
+          p.id === editingPackageId
+            ? {
+                ...p,
+                title: pkgTitle,
+                members: pkgMembers,
+                price_inr: pkgPrice,
+                badge: pkgBadge,
+                popular: pkgPopular,
+                features: featArr,
+              }
+            : p
+        )
+      );
+      setEditingPackageId(null);
+    } else {
+      const newPkg: PromoPackage = {
+        id: `pkg_${Date.now()}`,
+        title: pkgTitle,
+        members: pkgMembers,
+        price_inr: pkgPrice,
+        badge: pkgBadge,
+        popular: pkgPopular,
+        features: featArr,
+      };
+      setPackages((prev) => [...prev, newPkg]);
+    }
+
+    setPkgTitle("");
+    setPkgMembers(1000);
+    setPkgPrice(1500);
+    setPkgBadge("");
+    setPkgPopular(false);
+    setPkgFeatures("Real Telegram Users, Fast Delivery, 24/7 Support");
+    setIsPackageFormOpen(false);
+  };
+
+  const handleStartEditPackage = (pkg: PromoPackage) => {
+    setEditingPackageId(pkg.id);
+    setPkgTitle(pkg.title);
+    setPkgMembers(pkg.members);
+    setPkgPrice(pkg.price_inr);
+    setPkgBadge(pkg.badge || "");
+    setPkgPopular(Boolean(pkg.popular));
+    setPkgFeatures(pkg.features.join(", "));
+    setIsPackageFormOpen(true);
+  };
+
+  const handleDeletePackage = (id: string) => {
+    setPackages((prev) => prev.filter((p) => p.id !== id));
   };
 
   // 1. Unauthenticated Login Gate
@@ -590,20 +683,25 @@ export default function AdminPortalPage() {
             {/* Create Task Form */}
             <form
               onSubmit={handleCreateTask}
-              className="glass-card rounded-2xl p-5 border border-white space-y-3"
+              className="glass-card rounded-2xl p-5 border border-white space-y-4"
             >
-              <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider">
-                Add New Telegram Channel Join Task
-              </h3>
+              <div>
+                <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider">
+                  Add New Telegram Channel Join Task
+                </h3>
+                <p className="text-xs text-sky-700 mt-0.5">
+                  Promote verified channels and control top placement promises
+                </p>
+              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
                 <input
                   type="text"
                   required
                   placeholder="Channel Title (e.g. Alpha Crypto)"
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-xs text-sky-950"
+                  className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-sky-950 font-medium"
                 />
                 <input
                   type="text"
@@ -611,7 +709,7 @@ export default function AdminPortalPage() {
                   placeholder="Username (@channel_username)"
                   value={newTaskUsername}
                   onChange={(e) => setNewTaskUsername(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-xs text-sky-950"
+                  className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-sky-950 font-mono"
                 />
                 <input
                   type="url"
@@ -619,13 +717,52 @@ export default function AdminPortalPage() {
                   placeholder="Link (https://t.me/...)"
                   value={newTaskLink}
                   onChange={(e) => setNewTaskLink(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-xs text-sky-950"
+                  className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-sky-950"
                 />
+                <input
+                  type="number"
+                  required
+                  min={10}
+                  placeholder="Reward Coins (Default 50)"
+                  value={newTaskReward}
+                  onChange={(e) => setNewTaskReward(parseInt(e.target.value) || 50)}
+                  className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-sky-950 font-bold"
+                />
+              </div>
+
+              {/* Pin to Top Controls */}
+              <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="taskIsPinned"
+                    checked={newTaskIsPinned}
+                    onChange={(e) => setNewTaskIsPinned(e.target.checked)}
+                    className="rounded text-amber-600 focus:ring-amber-400"
+                  />
+                  <label htmlFor="taskIsPinned" className="font-bold text-amber-950 cursor-pointer flex items-center gap-1">
+                    <Crown className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Pin to Top #1 Spot (Promised in Growth / Empire Bundle)</span>
+                  </label>
+                </div>
+
+                {newTaskIsPinned && (
+                  <div className="flex items-center gap-2 pt-1 animate-in fade-in">
+                    <label className="font-bold text-amber-900 shrink-0">Top Badge Text:</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. TOP #1 SPONSOR, EMPIRE VIP"
+                      value={newTaskBadgeLabel}
+                      onChange={(e) => setNewTaskBadgeLabel(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-xs text-amber-950 font-bold flex-1"
+                    />
+                  </div>
+                )}
               </div>
 
               <button
                 type="submit"
-                className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5"
+                className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
               >
                 <Plus className="w-4 h-4" />
                 <span>Publish Channel Task to Mini App</span>
@@ -634,54 +771,283 @@ export default function AdminPortalPage() {
 
             {/* Active Tasks Table */}
             <div className="glass-card rounded-2xl p-5 border border-white space-y-3">
-              <h4 className="text-xs font-bold text-sky-950 uppercase">Active Channel Tasks</h4>
-              <div className="space-y-2">
-                {tasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="p-3 rounded-xl bg-white/70 border border-sky-200 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <span className="font-bold text-sky-950">{t.title}</span>
-                      <span className="text-sky-600 ml-2 font-mono">{t.username}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-amber-600">+{t.reward_coins} Coins</span>
-                      <span className="text-sky-700">{t.joined_count} Joins</span>
-                      <button
-                        onClick={() => setTasks((prev) => prev.filter((x) => x.id !== t.id))}
-                        className="text-rose-600 font-bold hover:underline"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex justify-between items-center">
+                <h4 className="text-xs font-bold text-sky-950 uppercase">
+                  Active Channel Tasks ({tasks.length})
+                </h4>
+                <span className="text-[11px] text-sky-700 font-semibold">
+                  Pinned channels appear at the top in user app
+                </span>
               </div>
+
+              {tasks.length === 0 ? (
+                <div className="p-6 text-center text-xs text-sky-700 bg-white/50 rounded-xl border border-sky-100">
+                  No active channels yet. Add your first sponsor channel above!
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {tasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs transition-all ${
+                        t.is_pinned
+                          ? "bg-amber-50/80 border-amber-300 shadow-sm"
+                          : "bg-white/70 border-sky-200"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {t.is_pinned && (
+                          <span className="flex items-center gap-1 bg-amber-400 text-amber-950 text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs">
+                            <Crown className="w-3 h-3" />
+                            <span>{t.badge_label || "TOP #1"}</span>
+                          </span>
+                        )}
+                        <span className="font-bold text-sky-950">{t.title}</span>
+                        <span className="text-sky-600 font-mono text-[11px]">{t.username}</span>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-amber-600">+{t.reward_coins} Coins</span>
+                        <span className="text-sky-700">{t.joined_count} Joins</span>
+
+                        {/* 1-Click Pin / Unpin Toggle */}
+                        <button
+                          onClick={() => handleTogglePinTask(t.id)}
+                          className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 active:scale-95 transition-all ${
+                            t.is_pinned
+                              ? "bg-amber-200 text-amber-950 hover:bg-amber-300"
+                              : "bg-sky-100 text-sky-800 hover:bg-sky-200"
+                          }`}
+                        >
+                          <Star className={`w-3 h-3 ${t.is_pinned ? "fill-amber-600 text-amber-600" : ""}`} />
+                          <span>{t.is_pinned ? "Unpin" : "Pin to Top"}</span>
+                        </button>
+
+                        <button
+                          onClick={() => setTasks((prev) => prev.filter((x) => x.id !== t.id))}
+                          className="text-rose-600 font-bold hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* 5. AD PACKAGES SECTION */}
         {currentSection === "packages" && (
-          <div className="glass-card rounded-2xl p-5 border border-white space-y-4">
-            <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider">
-              Promotion Packages Manager
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {packages.map((pkg) => (
-                <div key={pkg.id} className="p-4 rounded-xl bg-white/70 border border-sky-200 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <h5 className="font-bold text-sky-950 text-sm">{pkg.title}</h5>
-                    <span className="font-black text-sky-950">₹{pkg.price_inr}</span>
-                  </div>
-                  <p className="text-xs text-sky-700">{pkg.members} Members</p>
-                  <div className="pt-2 border-t border-sky-100 text-[11px] text-sky-600">
-                    Badge: {pkg.badge || "Standard"}
-                  </div>
+          <div className="space-y-6">
+            <div className="glass-card rounded-2xl p-5 border border-white space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider">
+                    Promotion Packages & Plan Bundles Manager
+                  </h3>
+                  <p className="text-xs text-sky-700 mt-0.5">
+                    Create, edit, or remove promotional tiers shown to channel owners in the app
+                  </p>
                 </div>
-              ))}
+
+                {!isPackageFormOpen && (
+                  <button
+                    onClick={() => {
+                      setEditingPackageId(null);
+                      setPkgTitle("");
+                      setPkgMembers(1000);
+                      setPkgPrice(1500);
+                      setPkgBadge("");
+                      setPkgPopular(false);
+                      setPkgFeatures("Real Telegram Users, Fast Delivery, 24/7 Support");
+                      setIsPackageFormOpen(true);
+                    }}
+                    className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Add New Plan Bundle</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Add / Edit Package Form */}
+              {isPackageFormOpen && (
+                <form
+                  onSubmit={handleSavePackage}
+                  className="p-4 rounded-2xl bg-white/80 border border-sky-200 shadow-sm space-y-3 animate-in fade-in duration-200"
+                >
+                  <div className="flex items-center justify-between pb-2 border-b border-sky-100">
+                    <h4 className="text-xs font-bold text-sky-950 uppercase tracking-wider">
+                      {editingPackageId ? "Edit Plan Bundle" : "Create New Plan Bundle"}
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setIsPackageFormOpen(false)}
+                      className="text-sky-600 hover:text-sky-900"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <label className="block font-bold text-sky-900 mb-1">Bundle Title</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Starter Boost, Mega Growth"
+                        value={pkgTitle}
+                        onChange={(e) => setPkgTitle(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-950 font-medium"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-sky-900 mb-1">Member Count</label>
+                      <input
+                        type="number"
+                        required
+                        min={50}
+                        placeholder="1000"
+                        value={pkgMembers}
+                        onChange={(e) => setPkgMembers(parseInt(e.target.value) || 0)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-950 font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-sky-900 mb-1">Price in INR (₹)</label>
+                      <input
+                        type="number"
+                        required
+                        min={10}
+                        placeholder="1500"
+                        value={pkgPrice}
+                        onChange={(e) => setPkgPrice(parseInt(e.target.value) || 0)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-950 font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <label className="block font-bold text-sky-900 mb-1">
+                        Badge / Label (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Most Popular, Best Value, Hot"
+                        value={pkgBadge}
+                        onChange={(e) => setPkgBadge(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-950"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-sky-900 mb-1">
+                        Features List (Comma-separated)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Feature 1, Feature 2, Feature 3"
+                        value={pkgFeatures}
+                        onChange={(e) => setPkgFeatures(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-950"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1 text-xs">
+                    <input
+                      type="checkbox"
+                      id="pkgPopular"
+                      checked={pkgPopular}
+                      onChange={(e) => setPkgPopular(e.target.checked)}
+                      className="rounded text-sky-600 focus:ring-sky-400"
+                    />
+                    <label htmlFor="pkgPopular" className="font-bold text-sky-900 cursor-pointer">
+                      Highlight as "Most Popular" Plan
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="submit"
+                      className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{editingPackageId ? "Save Changes" : "Create & Publish Bundle"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsPackageFormOpen(false)}
+                      className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs hover:bg-slate-200"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Packages Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {packages.map((pkg) => (
+                  <div
+                    key={pkg.id}
+                    className="p-4 rounded-2xl bg-white/70 border border-sky-200 flex flex-col justify-between space-y-3 relative hover:shadow-md transition-shadow"
+                  >
+                    <div>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h5 className="font-bold text-sky-950 text-sm">{pkg.title}</h5>
+                          <span className="text-xs font-semibold text-sky-700">
+                            {pkg.members.toLocaleString()} Members
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-black text-sky-950 text-base">₹{pkg.price_inr}</span>
+                          {pkg.badge && (
+                            <span className="block text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.2 rounded-full mt-0.5">
+                              {pkg.badge}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 pt-2 border-t border-sky-100 space-y-1">
+                        {pkg.features.map((feat, idx) => (
+                          <div key={idx} className="text-[11px] text-sky-800 flex items-center gap-1">
+                            <span className="text-emerald-600 font-bold">✓</span>
+                            <span>{feat}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Actions: Edit and Delete */}
+                    <div className="pt-3 border-t border-sky-100 flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => handleStartEditPackage(pkg)}
+                        className="px-2.5 py-1.5 rounded-lg bg-sky-100 text-sky-800 hover:bg-sky-200 font-bold text-xs flex items-center gap-1 active:scale-95 transition-transform"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDeletePackage(pkg.id)}
+                        className="px-2.5 py-1.5 rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200 font-bold text-xs flex items-center gap-1 active:scale-95 transition-transform"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

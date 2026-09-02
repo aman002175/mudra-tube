@@ -30,6 +30,8 @@ export interface ChannelTask {
   target_members: number;
   joined_count: number;
   verified?: boolean;
+  is_pinned?: boolean; // When true, pinned to the very top as guaranteed by promotional package
+  badge_label?: string; // e.g. "TOP SPONSOR", "FEATURED"
   status: "active" | "completed" | "paused";
 }
 

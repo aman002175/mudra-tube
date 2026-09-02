@@ -10,52 +10,7 @@ export const initialConfig: GlobalConfig = {
   maintenance_mode: false,
 };
 
-export const initialTasks: ChannelTask[] = [
-  {
-    id: "task_mudra_main",
-    title: "Mudra Tube Official",
-    username: "@mudratube_channel",
-    channel_link: "https://t.me/telegram",
-    avatar_url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=120&auto=format&fit=crop&q=80",
-    reward_coins: 50,
-    target_members: 5000,
-    joined_count: 2341,
-    status: "active",
-  },
-  {
-    id: "task_crypto_hub",
-    title: "Crypto Daily Alpha",
-    username: "@cryptodailyalpha",
-    channel_link: "https://t.me/telegram",
-    avatar_url: "https://images.unsplash.com/photo-1622979135225-d2ba269bc1df?w=120&auto=format&fit=crop&q=80",
-    reward_coins: 50,
-    target_members: 2000,
-    joined_count: 1420,
-    status: "active",
-  },
-  {
-    id: "task_deals_bazaar",
-    title: "Loot & Deals India",
-    username: "@lootdealsindia",
-    channel_link: "https://t.me/telegram",
-    avatar_url: "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=120&auto=format&fit=crop&q=80",
-    reward_coins: 50,
-    target_members: 3000,
-    joined_count: 2890,
-    status: "active",
-  },
-  {
-    id: "task_tech_radar",
-    title: "Tech Radar & AI News",
-    username: "@techradarnews",
-    channel_link: "https://t.me/telegram",
-    avatar_url: "https://images.unsplash.com/photo-1518770660439-4636190af475?w=120&auto=format&fit=crop&q=80",
-    reward_coins: 50,
-    target_members: 1500,
-    joined_count: 910,
-    status: "active",
-  },
-];
+export const initialTasks: ChannelTask[] = [];
 
 export const initialPackages: PromoPackage[] = [
   {
