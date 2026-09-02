@@ -9,6 +9,7 @@ import { TaskList } from "@/components/home/TaskList";
 import { OfferwallView } from "@/components/offerwalls/OfferwallView";
 import { PromoteView } from "@/components/promote/PromoteView";
 import { WalletView } from "@/components/wallet/WalletView";
+import { ProfileView } from "@/components/profile/ProfileView";
 import { WithdrawModal } from "@/components/wallet/WithdrawModal";
 import { useTelegram } from "@/hooks/useTelegram";
 import {
@@ -19,11 +20,11 @@ import {
   initialWithdrawals,
 } from "@/lib/mockData";
 import { ChannelTask, GlobalConfig, PromoPackage, UserProfile, WithdrawalRequest } from "@/types";
-import Link from "next/link";
-import { Shield, Sparkles } from "lucide-react";
+import { db, isFirebaseConfigured } from "@/lib/firebase";
+import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
 
 export default function MudraTubeApp() {
-  const { user: tgUser, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
+  const { user: tgUser, isTelegram, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
 
   // Application State
   const [currentTab, setCurrentTab] = useState<TabType>("tasks");
@@ -34,16 +35,56 @@ export default function MudraTubeApp() {
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>(initialWithdrawals);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
 
-  // Sync Telegram User data when detected
+  // Sync Telegram User & Firestore Database
   useEffect(() => {
-    if (tgUser) {
-      setUser((prev) => ({
-        ...prev,
-        user_id: String(tgUser.id),
-        username: tgUser.username || prev.username,
-        first_name: tgUser.first_name || prev.first_name,
-      }));
-    }
+    if (!tgUser) return;
+
+    const actualId = String(tgUser.id);
+    const actualUsername = tgUser.username || "tg_user";
+    const actualFirstName = tgUser.first_name || "Earner";
+
+    setUser((prev) => ({
+      ...prev,
+      user_id: actualId,
+      username: actualUsername,
+      first_name: actualFirstName,
+    }));
+
+    if (!isFirebaseConfigured) return;
+
+    // Real-time Firestore sync
+    const userDocRef = doc(db, "users", actualId);
+
+    // Initial check / create if new user
+    getDoc(userDocRef).then((snap) => {
+      if (!snap.exists()) {
+        const newUserDoc: UserProfile = {
+          user_id: actualId,
+          username: actualUsername,
+          first_name: actualFirstName,
+          balance: 0,
+          total_earned: 0,
+          total_withdrawn: 0,
+          completed_tasks: [],
+          referrals_count: 0,
+          is_banned: false,
+          created_at: new Date().toISOString(),
+        };
+        setDoc(userDocRef, newUserDoc);
+      }
+    });
+
+    // Listen to real-time balance updates
+    const unsubUser = onSnapshot(userDocRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as UserProfile;
+        setUser((prev) => ({ ...prev, ...data }));
+      }
+    });
+
+    return () => {
+      unsubUser();
+    };
   }, [tgUser]);
 
   // Handle Tab Switching with Haptics
@@ -63,7 +104,7 @@ export default function MudraTubeApp() {
     }
 
     try {
-      // Backend Bot API call proxy (falls back to simulation if bot token not yet provided)
+      // Backend Bot API call proxy
       const res = await fetch("/api/tasks/verify-channel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,17 +115,33 @@ export default function MudraTubeApp() {
         }),
       }).catch(() => null);
 
-      // Simulate success if in mock/demo mode or server confirmed
       const task = tasks.find((t) => t.id === taskId);
       const reward = task ? task.reward_coins : config.default_task_reward;
+      const newCompleted = [...user.completed_tasks, taskId];
+      const newBalance = user.balance + reward;
+      const newEarned = user.total_earned + reward;
 
-      // Update user state atomically
+      // Update local state atomically
       setUser((prev) => ({
         ...prev,
-        balance: prev.balance + reward,
-        total_earned: prev.total_earned + reward,
-        completed_tasks: [...prev.completed_tasks, taskId],
+        balance: newBalance,
+        total_earned: newEarned,
+        completed_tasks: newCompleted,
       }));
+
+      // If Firebase configured, persist to Firestore
+      if (isFirebaseConfigured) {
+        const userDocRef = doc(db, "users", user.user_id);
+        setDoc(
+          userDocRef,
+          {
+            balance: newBalance,
+            total_earned: newEarned,
+            completed_tasks: newCompleted,
+          },
+          { merge: true }
+        );
+      }
 
       // Update task joins count
       setTasks((prev) =>
@@ -126,14 +183,32 @@ export default function MudraTubeApp() {
       requested_at: new Date().toISOString(),
     };
 
-    // Deduct coins immediately (Anti-spend protection)
+    const updatedBalance = user.balance - coins;
+    const updatedWithdrawn = user.total_withdrawn + coins;
+
+    // Deduct coins immediately
     setUser((prev) => ({
       ...prev,
-      balance: prev.balance - coins,
-      total_withdrawn: prev.total_withdrawn + coins,
+      balance: updatedBalance,
+      total_withdrawn: updatedWithdrawn,
     }));
 
     setWithdrawals((prev) => [newRequest, ...prev]);
+
+    // Persist to Firestore if configured
+    if (isFirebaseConfigured) {
+      addDoc(collection(db, "withdrawals"), newRequest);
+      const userDocRef = doc(db, "users", user.user_id);
+      setDoc(
+        userDocRef,
+        {
+          balance: updatedBalance,
+          total_withdrawn: updatedWithdrawn,
+        },
+        { merge: true }
+      );
+    }
+
     triggerNotificationHaptic("success");
     return true;
   };
@@ -146,6 +221,13 @@ export default function MudraTubeApp() {
     packageId?: string;
   }): Promise<boolean> => {
     triggerHaptic("medium");
+    if (isFirebaseConfigured) {
+      addDoc(collection(db, "promotions"), {
+        ...data,
+        status: "pending",
+        created_at: new Date().toISOString(),
+      });
+    }
     triggerNotificationHaptic("success");
     return true;
   };
@@ -226,29 +308,9 @@ export default function MudraTubeApp() {
           </div>
         )}
 
-        {/* Tab 5: Admin Shortcut / Info */}
-        {currentTab === "admin" && (
-          <div className="rounded-2xl p-6 glass-card border border-white/80 text-center space-y-4 animate-in fade-in duration-200">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-sky-400 flex items-center justify-center text-white mx-auto shadow-md border border-white">
-              <Shield className="w-7 h-7" />
-            </div>
-            <h3 className="text-base font-extrabold text-sky-950">
-              Stealth Administrator Portal
-            </h3>
-            <p className="text-xs text-sky-700/80 leading-relaxed max-w-xs mx-auto">
-              The control center is hidden from search engines at route{" "}
-              <code className="font-mono bg-sky-100 px-1 py-0.5 rounded text-sky-900 font-bold">
-                /admin-penel-29devs
-              </code>
-            </p>
-
-            <Link
-              href="/admin-penel-29devs"
-              className="inline-flex items-center gap-2 btn-tactile-sky py-2.5 px-5 rounded-xl text-white font-extrabold text-xs shadow-tactile-btn"
-            >
-              <span>Go to Secret Admin Login</span>
-            </Link>
-          </div>
+        {/* Tab 5: Profile & Account (Admin tab completely removed) */}
+        {currentTab === "profile" && (
+          <ProfileView user={user} />
         )}
       </div>
 
