@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Shield,
   Lock,
@@ -70,52 +70,9 @@ export default function AdminPortalPage() {
   const [tasks, setTasks] = useState<ChannelTask[]>(initialTasks);
   const [packages, setPackages] = useState<PromoPackage[]>(initialPackages);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>(initialWithdrawals);
-  const [promotionRequests, setPromotionRequests] = useState<PromotionRequest[]>([
-    {
-      id: "promo_order_101",
-      user_id: "77491204",
-      channel_title: "Crypto Alpha Daily",
-      channel_username: "@cryptoalphadaily",
-      channel_link: "https://t.me/telegram",
-      package_id: "pkg_growth",
-      package_title: "Growth Pack (2,000 Members)",
-      target_members: 2000,
-      price_inr: 3500,
-      utr_number: "492019482012",
-      sponsor_contact: "@crypto_sponsor",
-      bot_verified: true,
-      status: "pending",
-      created_at: new Date().toISOString(),
-    },
-  ]);
+  const [promotionRequests, setPromotionRequests] = useState<PromotionRequest[]>([]);
   const [adminProfitCut, setAdminProfitCut] = useState<number>(initialConfig.admin_profit_cut_percent || 60);
-  const [usersList, setUsersList] = useState<UserProfile[]>([
-    initialMockUser,
-    {
-      user_id: "88291024",
-      username: "rahul_verma",
-      first_name: "Rahul",
-      balance: 450,
-      total_earned: 1350,
-      total_withdrawn: 900,
-      completed_tasks: ["task_mudra_main", "task_crypto_hub"],
-      referrals_count: 5,
-      is_banned: false,
-      created_at: "2026-08-20T10:00:00Z",
-    },
-    {
-      user_id: "77491204",
-      username: "crypto_sam",
-      first_name: "Sam",
-      balance: 1500,
-      total_earned: 2500,
-      total_withdrawn: 0,
-      completed_tasks: ["task_mudra_main"],
-      referrals_count: 12,
-      is_banned: false,
-      created_at: "2026-08-28T16:20:00Z",
-    },
-  ]);
+  const [usersList, setUsersList] = useState<UserProfile[]>([]);
 
   // UI helpers
   const [userSearch, setUserSearch] = useState("");
@@ -127,15 +84,15 @@ export default function AdminPortalPage() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskUsername, setNewTaskUsername] = useState("");
   const [newTaskLink, setNewTaskLink] = useState("");
-  const [newTaskReward, setNewTaskReward] = useState(50);
+  const [newTaskReward, setNewTaskReward] = useState<number | string>(50);
   const [newTaskIsPinned, setNewTaskIsPinned] = useState(false);
   const [newTaskBadgeLabel, setNewTaskBadgeLabel] = useState("TOP #1 SPONSOR");
   // Package form & edit state
   const [isPackageFormOpen, setIsPackageFormOpen] = useState(false);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [pkgTitle, setPkgTitle] = useState("");
-  const [pkgMembers, setPkgMembers] = useState(1000);
-  const [pkgPrice, setPkgPrice] = useState(1500);
+  const [pkgMembers, setPkgMembers] = useState<number | string>(1000);
+  const [pkgPrice, setPkgPrice] = useState<number | string>(1500);
   const [pkgBadge, setPkgBadge] = useState("");
   const [pkgPopular, setPkgPopular] = useState(false);
   const [pkgFeatures, setPkgFeatures] = useState("Real Telegram Users, Fast Delivery, 24/7 Support");
@@ -151,7 +108,7 @@ export default function AdminPortalPage() {
 
   // 1-to-1 Support Desk state
   const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
-  const [selectedChatUserId, setSelectedChatUserId] = useState<string>("88291024");
+  const [selectedChatUserId, setSelectedChatUserId] = useState<string>("");
   const [adminReplyText, setAdminReplyText] = useState("");
   const [inspectedUser, setInspectedUser] = useState<UserProfile | null>(null);
 
@@ -179,6 +136,31 @@ export default function AdminPortalPage() {
     setAuthError("Galat Username ya Password! Kripya sahi credentials dalein.");
   };
 
+  // Sync real data from /api/sync
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const fetchLiveSync = () => {
+      fetch("/api/sync")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            if (data.users) setUsersList(data.users);
+            if (data.withdrawals) setWithdrawals(data.withdrawals);
+            if (data.promotions) setPromotionRequests(data.promotions);
+            if (data.supportMessages) setSupportMessages(data.supportMessages);
+            if (data.tasks && data.tasks.length > 0) setTasks(data.tasks);
+            if (data.config) setConfig(data.config);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchLiveSync();
+    const interval = setInterval(fetchLiveSync, 3000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
+
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
@@ -203,6 +185,16 @@ export default function AdminPortalPage() {
         return w;
       })
     );
+
+    // Sync with server
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "admin_resolve_withdrawal",
+        payload: { id, status: newStatus, refund },
+      }),
+    }).catch(() => {});
 
     // If refund requested, restore user balance
     if (refund) {
@@ -231,6 +223,17 @@ export default function AdminPortalPage() {
           : u
       )
     );
+
+    // Sync with server
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "admin_adjust_balance",
+        payload: { user_id: userId, delta },
+      }),
+    }).catch(() => {});
+
     setSelectedUserForEdit(null);
   };
 
@@ -243,7 +246,7 @@ export default function AdminPortalPage() {
       title: newTaskTitle,
       username: newTaskUsername.startsWith("@") ? newTaskUsername : `@${newTaskUsername}`,
       channel_link: newTaskLink,
-      reward_coins: newTaskReward,
+      reward_coins: Number(newTaskReward) || 50,
       target_members: 1000,
       joined_count: 0,
       is_pinned: newTaskIsPinned,
@@ -284,8 +287,8 @@ export default function AdminPortalPage() {
             ? {
                 ...p,
                 title: pkgTitle,
-                members: pkgMembers,
-                price_inr: pkgPrice,
+                members: Number(pkgMembers) || 1000,
+                price_inr: Number(pkgPrice) || 1500,
                 badge: pkgBadge,
                 popular: pkgPopular,
                 features: featArr,
@@ -298,8 +301,8 @@ export default function AdminPortalPage() {
       const newPkg: PromoPackage = {
         id: `pkg_${Date.now()}`,
         title: pkgTitle,
-        members: pkgMembers,
-        price_inr: pkgPrice,
+        members: Number(pkgMembers) || 1000,
+        price_inr: Number(pkgPrice) || 1500,
         badge: pkgBadge,
         popular: pkgPopular,
         features: featArr,
@@ -362,6 +365,16 @@ export default function AdminPortalPage() {
     setPromotionRequests((prev) =>
       prev.map((r) => (r.id === req.id ? { ...r, status: "approved" } : r))
     );
+
+    // Sync with server
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "admin_approve_promotion",
+        payload: { id: req.id },
+      }),
+    }).catch(() => {});
   };
 
   const handleRejectPromotion = (id: string, reason?: string) => {
@@ -445,6 +458,22 @@ export default function AdminPortalPage() {
     };
 
     setSupportMessages((prev) => [...prev, newReply]);
+
+    // Sync with server
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "send_support_message",
+        payload: {
+          user_id: selectedChatUserId,
+          user_name: chatTargetUser?.first_name || chatTargetUser?.username || "User",
+          sender: "admin",
+          message: adminReplyText.trim(),
+        },
+      }),
+    }).catch(() => {});
+
     setAdminReplyText("");
   };
 
@@ -720,78 +749,96 @@ export default function AdminPortalPage() {
                     Conversations
                   </h4>
 
-                  {Array.from(new Set(supportMessages.map((m) => m.user_id))).map((uid) => {
-                    const threadMsgs = supportMessages.filter((m) => m.user_id === uid);
-                    const lastMsg = threadMsgs[threadMsgs.length - 1];
-                    const threadUser = usersList.find((u) => u.user_id === uid) || {
-                      user_id: uid,
-                      username: lastMsg?.user_name || "user",
-                      first_name: lastMsg?.user_name || "User",
-                      balance: 0,
-                    };
-                    const isSelected = selectedChatUserId === uid;
-                    const hasUnread = threadMsgs.some((m) => m.sender === "user" && !m.read);
+                  {supportMessages.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-sky-600 bg-white/50 rounded-xl border border-sky-100 italic">
+                      No support chats yet. Messages sent from the user app will appear here.
+                    </div>
+                  ) : (
+                    Array.from(new Set(supportMessages.map((m) => m.user_id))).map((uid) => {
+                      const threadMsgs = supportMessages.filter((m) => m.user_id === uid);
+                      const lastMsg = threadMsgs[threadMsgs.length - 1];
+                      const threadUser = usersList.find((u) => u.user_id === uid) || {
+                        user_id: uid,
+                        username: lastMsg?.user_name || "user",
+                        first_name: lastMsg?.user_name || "User",
+                        balance: 0,
+                      };
+                      const isSelected = selectedChatUserId === uid;
+                      const hasUnread = threadMsgs.some((m) => m.sender === "user" && !m.read);
 
-                    return (
-                      <div
-                        key={uid}
-                        onClick={() => {
-                          setSelectedChatUserId(uid);
-                          // Mark as read
-                          setSupportMessages((prev) =>
-                            prev.map((m) => (m.user_id === uid ? { ...m, read: true } : m))
-                          );
-                        }}
-                        className={`p-3 rounded-xl cursor-pointer transition-all border text-xs space-y-1 ${
-                          isSelected
-                            ? "bg-sky-500 text-white border-sky-600 shadow-sm"
-                            : "bg-white/80 hover:bg-white text-sky-950 border-sky-100"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div
-                              className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
-                                isSelected ? "bg-white text-sky-600" : "bg-sky-100 text-sky-800"
-                              }`}
-                            >
-                              {threadUser.first_name ? threadUser.first_name[0].toUpperCase() : "U"}
-                            </div>
-                            <div className="min-w-0">
-                              <span className="font-black truncate block">
-                                {threadUser.first_name || threadUser.username}
-                              </span>
-                              <span
-                                className={`text-[10px] font-mono block ${
-                                  isSelected ? "text-sky-100" : "text-sky-600"
-                                }`}
-                              >
-                                #{uid}
-                              </span>
-                            </div>
-                          </div>
-
-                          {hasUnread && (
-                            <span className="w-2.5 h-2.5 bg-rose-500 rounded-full shrink-0" />
-                          )}
-                        </div>
-
-                        <p
-                          className={`text-[11px] truncate pt-1 ${
-                            isSelected ? "text-sky-100" : "text-sky-700"
+                      return (
+                        <div
+                          key={uid}
+                          onClick={() => {
+                            setSelectedChatUserId(uid);
+                            // Mark as read
+                            setSupportMessages((prev) =>
+                              prev.map((m) => (m.user_id === uid ? { ...m, read: true } : m))
+                            );
+                          }}
+                          className={`p-3 rounded-xl cursor-pointer transition-all border text-xs space-y-1 ${
+                            isSelected
+                              ? "bg-sky-500 text-white border-sky-600 shadow-sm"
+                              : "bg-white/80 hover:bg-white text-sky-950 border-sky-100"
                           }`}
                         >
-                          {lastMsg ? lastMsg.message : "No messages yet"}
-                        </p>
-                      </div>
-                    );
-                  })}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                                  isSelected ? "bg-white text-sky-600" : "bg-sky-100 text-sky-800"
+                                }`}
+                              >
+                                {threadUser.first_name ? threadUser.first_name[0].toUpperCase() : "U"}
+                              </div>
+                              <div className="min-w-0">
+                                <span className="font-black truncate block">
+                                  {threadUser.first_name || threadUser.username}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-mono block ${
+                                    isSelected ? "text-sky-100" : "text-sky-600"
+                                  }`}
+                                >
+                                  #{uid}
+                                </span>
+                              </div>
+                            </div>
+
+                            {hasUnread && (
+                              <span className="w-2.5 h-2.5 bg-rose-500 rounded-full shrink-0" />
+                            )}
+                          </div>
+
+                          <p
+                            className={`text-[11px] truncate pt-1 ${
+                              isSelected ? "text-sky-100" : "text-sky-700"
+                            }`}
+                          >
+                            {lastMsg ? lastMsg.message : "No messages yet"}
+                          </p>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
 
                 {/* Right: Active Chat Window */}
                 <div className="sm:col-span-2 rounded-2xl bg-white/80 border border-sky-200/80 flex flex-col justify-between overflow-hidden">
                   {/* Chat Header with User Balance & Inspect Button */}
                   {(() => {
+                    if (!selectedChatUserId) {
+                      return (
+                        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-2 text-xs text-sky-600 min-h-[300px]">
+                          <MessageSquare className="w-10 h-10 text-sky-300 mx-auto" />
+                          <h5 className="font-bold text-sky-900 text-sm">Support Desk Active</h5>
+                          <p className="max-w-xs text-[11px] text-sky-600">
+                            No conversation selected. When users send a support inquiry from the Mini App, select their name on the left to read and reply.
+                          </p>
+                        </div>
+                      );
+                    }
+
                     const activeUser =
                       usersList.find((u) => u.user_id === selectedChatUserId) ||
                       ({
@@ -1311,67 +1358,79 @@ export default function AdminPortalPage() {
               All Withdrawal Requests
             </h3>
 
-            <div className="space-y-3">
-              {withdrawals.map((w) => (
-                <div
-                  key={w.id}
-                  className="p-4 rounded-xl bg-white/70 border border-sky-200 flex flex-wrap items-center justify-between gap-3 text-xs"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sky-950">User: @{w.username}</span>
-                      <span className="text-sky-600 font-mono text-[11px]">ID: {w.user_id}</span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          w.status === "completed"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : w.status === "pending"
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-rose-100 text-rose-700"
-                        }`}
-                      >
-                        {w.status.toUpperCase()}
-                      </span>
+            {withdrawals.length === 0 ? (
+              <div className="text-center py-12 px-4 rounded-2xl bg-white/50 border border-dashed border-sky-200 space-y-2">
+                <CreditCard className="w-8 h-8 text-sky-400 mx-auto" />
+                <h4 className="text-xs font-black text-sky-950 uppercase tracking-wider">
+                  No Pending Withdrawal Requests
+                </h4>
+                <p className="text-[11px] text-sky-600 max-w-sm mx-auto">
+                  When users request coin payouts to their UPI or TON address, they will appear here in real-time for verification and 1-click approval.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {withdrawals.map((w) => (
+                  <div
+                    key={w.id}
+                    className="p-4 rounded-xl bg-white/70 border border-sky-200 flex flex-wrap items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sky-950">User: @{w.username}</span>
+                        <span className="text-sky-600 font-mono text-[11px]">ID: {w.user_id}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            w.status === "completed"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : w.status === "pending"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-rose-100 text-rose-700"
+                          }`}
+                        >
+                          {w.status.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-sky-900 font-medium">
+                        <span className="font-bold">{w.method}:</span>
+                        <span className="font-mono bg-white px-2 py-0.5 rounded border border-sky-200">
+                          {w.payout_address}
+                        </span>
+                        <button
+                          onClick={() => handleCopy(w.payout_address, w.id)}
+                          className="p-1 text-sky-600 hover:text-sky-800"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="text-[11px] text-sky-700">
+                        Amount: <strong>{w.coins} Coins</strong> (₹{w.amount_inr} INR) • Requested:{" "}
+                        {new Date(w.requested_at).toLocaleString()}
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-sky-900 font-medium">
-                      <span className="font-bold">{w.method}:</span>
-                      <span className="font-mono bg-white px-2 py-0.5 rounded border border-sky-200">
-                        {w.payout_address}
-                      </span>
-                      <button
-                        onClick={() => handleCopy(w.payout_address, w.id)}
-                        className="p-1 text-sky-600 hover:text-sky-800"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="text-[11px] text-sky-700">
-                      Amount: <strong>{w.coins} Coins</strong> (₹{w.amount_inr} INR) • Requested:{" "}
-                      {new Date(w.requested_at).toLocaleString()}
-                    </div>
+                    {w.status === "pending" && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleResolveWithdrawal(w.id, "completed")}
+                          className="btn-tactile-sky px-3.5 py-1.5 rounded-xl text-white font-bold text-xs"
+                        >
+                          Approve (Paid)
+                        </button>
+                        <button
+                          onClick={() => handleResolveWithdrawal(w.id, "rejected", true)}
+                          className="px-3 py-1.5 rounded-xl bg-rose-100 text-rose-700 font-bold text-xs"
+                        >
+                          Reject & Refund
+                        </button>
+                      </div>
+                    )}
                   </div>
-
-                  {w.status === "pending" && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleResolveWithdrawal(w.id, "completed")}
-                        className="btn-tactile-sky px-3.5 py-1.5 rounded-xl text-white font-bold text-xs"
-                      >
-                        Approve (Paid)
-                      </button>
-                      <button
-                        onClick={() => handleResolveWithdrawal(w.id, "rejected", true)}
-                        className="px-3 py-1.5 rounded-xl bg-rose-100 text-rose-700 font-bold text-xs"
-                      >
-                        Reject & Refund
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1408,7 +1467,14 @@ export default function AdminPortalPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-sky-100">
-                  {filteredUsers.map((u) => (
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-sky-600 italic">
+                        No registered users yet. When users launch the Telegram Mini App, they will automatically be recorded here.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((u) => (
                     <tr key={u.user_id} className="hover:bg-white/40">
                       <td className="py-2.5 font-mono text-sky-700">{u.user_id}</td>
                       <td className="py-2.5 font-bold text-sky-950">@{u.username}</td>
@@ -1426,7 +1492,8 @@ export default function AdminPortalPage() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1516,8 +1583,10 @@ export default function AdminPortalPage() {
                   required
                   min={10}
                   placeholder="Reward Coins (Default 50)"
-                  value={newTaskReward}
-                  onChange={(e) => setNewTaskReward(parseInt(e.target.value) || 50)}
+                  value={newTaskReward === 0 ? "" : newTaskReward}
+                  onChange={(e) =>
+                    setNewTaskReward(e.target.value === "" ? "" : Number(e.target.value))
+                  }
                   className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-sky-950 font-bold"
                 />
               </div>
@@ -1703,8 +1772,10 @@ export default function AdminPortalPage() {
                         required
                         min={50}
                         placeholder="1000"
-                        value={pkgMembers}
-                        onChange={(e) => setPkgMembers(parseInt(e.target.value) || 0)}
+                        value={pkgMembers === 0 ? "" : pkgMembers}
+                        onChange={(e) =>
+                          setPkgMembers(e.target.value === "" ? "" : Number(e.target.value))
+                        }
                         className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-950 font-bold"
                       />
                     </div>
@@ -1716,8 +1787,10 @@ export default function AdminPortalPage() {
                         required
                         min={10}
                         placeholder="1500"
-                        value={pkgPrice}
-                        onChange={(e) => setPkgPrice(parseInt(e.target.value) || 0)}
+                        value={pkgPrice === 0 ? "" : pkgPrice}
+                        onChange={(e) =>
+                          setPkgPrice(e.target.value === "" ? "" : Number(e.target.value))
+                        }
                         className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-950 font-bold"
                       />
                     </div>
@@ -1858,9 +1931,12 @@ export default function AdminPortalPage() {
                 </label>
                 <input
                   type="number"
-                  value={config.min_withdrawal_coins}
+                  value={config.min_withdrawal_coins === 0 ? "" : config.min_withdrawal_coins}
                   onChange={(e) =>
-                    setConfig({ ...config, min_withdrawal_coins: parseInt(e.target.value) || 0 })
+                    setConfig({
+                      ...config,
+                      min_withdrawal_coins: e.target.value === "" ? 0 : Number(e.target.value),
+                    })
                   }
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
                 />
@@ -1872,9 +1948,12 @@ export default function AdminPortalPage() {
                 </label>
                 <input
                   type="number"
-                  value={config.coins_per_inr}
+                  value={config.coins_per_inr === 0 ? "" : config.coins_per_inr}
                   onChange={(e) =>
-                    setConfig({ ...config, coins_per_inr: parseInt(e.target.value) || 1 })
+                    setConfig({
+                      ...config,
+                      coins_per_inr: e.target.value === "" ? 0 : Number(e.target.value),
+                    })
                   }
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
                 />
@@ -1886,12 +1965,37 @@ export default function AdminPortalPage() {
                 </label>
                 <input
                   type="number"
-                  value={config.default_task_reward}
+                  value={config.default_task_reward === 0 ? "" : config.default_task_reward}
                   onChange={(e) =>
-                    setConfig({ ...config, default_task_reward: parseInt(e.target.value) || 0 })
+                    setConfig({
+                      ...config,
+                      default_task_reward: e.target.value === "" ? 0 : Number(e.target.value),
+                    })
                   }
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
                 />
+              </div>
+
+              <div>
+                <label className="block font-bold text-sky-900 mb-1">
+                  Minimum Rate Per Member Floor (₹ INR per custom member)
+                </label>
+                <input
+                  type="number"
+                  step={0.1}
+                  min={0.1}
+                  value={config.min_rate_per_member_inr === 0 ? "" : config.min_rate_per_member_inr}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      min_rate_per_member_inr: e.target.value === "" ? 0 : Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
+                />
+                <span className="text-[10px] text-sky-600 block mt-0.5">
+                  Sponsors asking for custom member counts cannot pay less than this rate per user.
+                </span>
               </div>
 
               <div>

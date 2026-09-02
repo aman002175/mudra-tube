@@ -14,6 +14,7 @@ export const initialConfig: GlobalConfig = {
   coins_per_ton: 50000,
   default_task_reward: 50,
   admin_profit_cut_percent: 60, // 60% Admin, 40% User Pool
+  min_rate_per_member_inr: 2.0,  // e.g. ₹2.00 per member minimum floor
   admin_upi_id: "admin@paytm",
   admin_telegram_handle: "@admin_mudratube",
   bot_username: "@MudraTube_bot",
@@ -71,56 +72,17 @@ export const initialPackages: PromoPackage[] = [
   },
 ];
 
-export const initialWithdrawals: WithdrawalRequest[] = [
-  {
-    id: "wd_101",
-    user_id: "88291024",
-    username: "rahul_verma",
-    method: "UPI",
-    payout_address: "rahul@paytm",
-    coins: 900,
-    amount_inr: 3.0,
-    status: "completed",
-    refunded: false,
-    utr_number: "UTR4920194821",
-    requested_at: "2026-09-01T14:30:00Z",
-    processed_at: "2026-09-01T15:00:00Z",
-  },
-  {
-    id: "wd_102",
-    user_id: "77491204",
-    username: "crypto_sam",
-    method: "TON",
-    payout_address: "UQDa4Vfvy2qPkW_x09yJ6V19nQW-29eL13098",
-    coins: 1500,
-    amount_inr: 5.0,
-    status: "pending",
-    refunded: false,
-    requested_at: "2026-09-02T19:20:00Z",
-  },
-  {
-    id: "wd_103",
-    user_id: "55194012",
-    username: "priya_sharma",
-    method: "UPI",
-    payout_address: "priya@okaxis",
-    coins: 600,
-    amount_inr: 2.0,
-    status: "pending",
-    refunded: false,
-    requested_at: "2026-09-02T21:45:00Z",
-  },
-];
+export const initialWithdrawals: WithdrawalRequest[] = [];
 
 export const initialMockUser: UserProfile = {
-  user_id: "92837461",
-  username: "crypto_tiger",
-  first_name: "Tiger",
-  balance: 150,
-  total_earned: 250,
-  total_withdrawn: 100,
+  user_id: "",
+  username: "",
+  first_name: "Loading...",
+  balance: 0,
+  total_earned: 0,
+  total_withdrawn: 0,
   completed_tasks: [],
-  referrals_count: 3,
+  referrals_count: 0,
   is_banned: false,
   created_at: new Date().toISOString(),
 };
@@ -142,32 +104,4 @@ export const initialPaymentMethods: AdminPaymentMethod[] = [
   },
 ];
 
-export const initialSupportMessages: SupportChatMessage[] = [
-  {
-    id: "msg_1",
-    user_id: "88291024",
-    user_name: "Rahul Verma",
-    sender: "user",
-    message: "Namaste Admin sir! Mera withdrawal kab approve hoga?",
-    timestamp: "2026-09-02T22:30:00Z",
-    read: false,
-  },
-  {
-    id: "msg_2",
-    user_id: "88291024",
-    user_name: "Rahul Verma",
-    sender: "admin",
-    message: "Namaste Rahul! Aapka UPI UTR verify ho gaya hai, agle 30 minute me credit ho jayega.",
-    timestamp: "2026-09-02T22:35:00Z",
-    read: true,
-  },
-  {
-    id: "msg_3",
-    user_id: "77491204",
-    user_name: "Sam Crypto",
-    sender: "user",
-    message: "Sir promotion bundle buy kiya tha, live kab hoga?",
-    timestamp: "2026-09-02T23:10:00Z",
-    read: false,
-  },
-];
+export const initialSupportMessages: SupportChatMessage[] = [];

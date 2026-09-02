@@ -47,54 +47,107 @@ export default function MudraTubeApp() {
   const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
 
   // Sync Telegram User & Firestore Database
+  // Sync Telegram User or Persistent Browser ID with Server & Firestore
   useEffect(() => {
-    if (!tgUser) return;
+    let actualId = "";
+    let actualUsername = "";
+    let actualFirstName = "";
 
-    const actualId = String(tgUser.id);
-    const actualUsername = tgUser.username || "tg_user";
-    const actualFirstName = tgUser.first_name || "Earner";
+    if (tgUser && tgUser.id) {
+      actualId = String(tgUser.id);
+      actualUsername = tgUser.username || `tg_${actualId}`;
+      actualFirstName = tgUser.first_name || "Earner";
+    } else {
+      // Browser testing mode: persist consistent ID across refreshes
+      let storedId = typeof window !== "undefined" ? localStorage.getItem("mudratube_user_id") : null;
+      if (!storedId) {
+        storedId = `user_${Math.floor(100000 + Math.random() * 900000)}`;
+        if (typeof window !== "undefined") localStorage.setItem("mudratube_user_id", storedId);
+      }
+      actualId = storedId;
+      actualUsername = `browser_${actualId.slice(-4)}`;
+      actualFirstName = "Tester";
+    }
 
-    setUser((prev) => ({
-      ...prev,
-      user_id: actualId,
-      username: actualUsername,
-      first_name: actualFirstName,
-    }));
-
-    if (!isFirebaseConfigured) return;
-
-    // Real-time Firestore sync
-    const userDocRef = doc(db, "users", actualId);
-
-    // Initial check / create if new user
-    getDoc(userDocRef).then((snap) => {
-      if (!snap.exists()) {
-        const newUserDoc: UserProfile = {
+    // Connect to Server /api/sync
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "connect_user",
+        payload: {
           user_id: actualId,
           username: actualUsername,
           first_name: actualFirstName,
-          balance: 0,
-          total_earned: 0,
-          total_withdrawn: 0,
-          completed_tasks: [],
-          referrals_count: 0,
-          is_banned: false,
-          created_at: new Date().toISOString(),
-        };
-        setDoc(userDocRef, newUserDoc);
-      }
-    });
+        },
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.user) {
+          setUser(data.user);
+        }
+      })
+      .catch(() => {});
 
-    // Listen to real-time balance updates
-    const unsubUser = onSnapshot(userDocRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as UserProfile;
-        setUser((prev) => ({ ...prev, ...data }));
-      }
-    });
+    // Fetch initial state for tasks, withdrawals, support messages
+    const fetchUserData = () => {
+      fetch(`/api/sync?user_id=${actualId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            if (data.user) setUser(data.user);
+            if (data.tasks) setTasks(data.tasks);
+            if (data.withdrawals) {
+              setWithdrawals(data.withdrawals.filter((w: any) => w.user_id === actualId));
+            }
+            if (data.supportMessages) {
+              setSupportMessages(data.supportMessages.filter((m: any) => m.user_id === actualId));
+            }
+            if (data.config) setConfig(data.config);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchUserData();
+    const interval = setInterval(fetchUserData, 5000);
+
+    if (isFirebaseConfigured) {
+      const userDocRef = doc(db, "users", actualId);
+      getDoc(userDocRef).then((snap) => {
+        if (!snap.exists()) {
+          const newUserDoc: UserProfile = {
+            user_id: actualId,
+            username: actualUsername,
+            first_name: actualFirstName,
+            balance: 0,
+            total_earned: 0,
+            total_withdrawn: 0,
+            completed_tasks: [],
+            referrals_count: 0,
+            is_banned: false,
+            created_at: new Date().toISOString(),
+          };
+          setDoc(userDocRef, newUserDoc);
+        }
+      });
+
+      const unsubUser = onSnapshot(userDocRef, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as UserProfile;
+          setUser((prev) => ({ ...prev, ...data }));
+        }
+      });
+
+      return () => {
+        clearInterval(interval);
+        unsubUser();
+      };
+    }
 
     return () => {
-      unsubUser();
+      clearInterval(interval);
     };
   }, [tgUser]);
 
@@ -154,10 +207,23 @@ export default function MudraTubeApp() {
         );
       }
 
-      // Update task joins count
+      // Update task joins count & notify /api/sync
       setTasks((prev) =>
         prev.map((t) => (t.id === taskId ? { ...t, joined_count: t.joined_count + 1 } : t))
       );
+
+      fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "complete_task",
+          payload: {
+            user_id: user.user_id,
+            task_id: taskId,
+            reward_coins: tasks.find((t) => t.id === taskId)?.reward_coins || 50,
+          },
+        }),
+      }).catch(() => {});
 
       triggerNotificationHaptic("success");
       return true;
@@ -206,6 +272,22 @@ export default function MudraTubeApp() {
 
     setWithdrawals((prev) => [newRequest, ...prev]);
 
+    // Send to Server /api/sync
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "request_withdrawal",
+        payload: {
+          user_id: user.user_id,
+          coins,
+          amount_inr: inrValue,
+          method,
+          payout_address: payoutAddress,
+        },
+      }),
+    }).catch(() => {});
+
     // Persist to Firestore if configured
     if (isFirebaseConfigured) {
       addDoc(collection(db, "withdrawals"), newRequest);
@@ -234,6 +316,20 @@ export default function MudraTubeApp() {
     packageId?: string;
   }): Promise<boolean> => {
     triggerHaptic("medium");
+
+    // Send to Server /api/sync
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "submit_promotion",
+        payload: {
+          ...data,
+          user_id: user.user_id,
+        },
+      }),
+    }).catch(() => {});
+
     if (isFirebaseConfigured) {
       addDoc(collection(db, "promotions"), {
         ...data,
@@ -267,9 +363,59 @@ export default function MudraTubeApp() {
     };
     setSupportMessages((prev) => [...prev, newMsg]);
 
+    // Send to Server /api/sync
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "send_support_message",
+        payload: {
+          user_id: user.user_id,
+          user_name: user.first_name || user.username || "User",
+          sender: "user",
+          message: text,
+        },
+      }),
+    }).catch(() => {});
+
     if (isFirebaseConfigured) {
       addDoc(collection(db, "support_messages"), newMsg);
     }
+    triggerNotificationHaptic("success");
+  };
+
+  // Save user's personal UPI ID & TON Address
+  const handleUpdateSavedAddresses = (upi?: string, ton?: string) => {
+    triggerHaptic("medium");
+    const updatedUpi = upi !== undefined ? upi : user.saved_upi_id;
+    const updatedTon = ton !== undefined ? ton : user.saved_ton_address;
+
+    setUser((prev) => ({
+      ...prev,
+      saved_upi_id: updatedUpi,
+      saved_ton_address: updatedTon,
+    }));
+
+    if (typeof window !== "undefined") {
+      if (upi !== undefined) localStorage.setItem("mudratube_saved_upi", upi);
+      if (ton !== undefined) localStorage.setItem("mudratube_saved_ton", ton);
+    }
+
+    fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "connect_user",
+        payload: {
+          user_id: user.user_id,
+          username: user.username,
+          first_name: user.first_name,
+          saved_upi_id: updatedUpi,
+          saved_ton_address: updatedTon,
+        },
+      }),
+    }).catch(() => {});
+
     triggerNotificationHaptic("success");
   };
 
@@ -356,6 +502,7 @@ export default function MudraTubeApp() {
               triggerHaptic("light");
               setIsSupportOpen(true);
             }}
+            onUpdateSavedAddresses={handleUpdateSavedAddresses}
           />
         )}
       </div>
@@ -374,6 +521,13 @@ export default function MudraTubeApp() {
         user={user}
         config={config}
         onSubmitWithdrawal={handleSubmitWithdrawal}
+        onSaveAddress={(method, addr) => {
+          if (method === "UPI") {
+            handleUpdateSavedAddresses(addr, undefined);
+          } else {
+            handleUpdateSavedAddresses(undefined, addr);
+          }
+        }}
       />
 
       {/* 1-to-1 Private Admin Support Chat Modal */}

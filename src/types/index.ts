@@ -18,6 +18,8 @@ export interface UserProfile {
   referrals_count: number;
   is_banned: boolean;
   created_at: string;
+  saved_upi_id?: string;
+  saved_ton_address?: string;
 }
 
 export interface ChannelTask {
@@ -104,6 +106,7 @@ export interface GlobalConfig {
   coins_per_ton: number;
   default_task_reward: number;
   admin_profit_cut_percent: number; // e.g. 60% Admin, 40% User Pool
+  min_rate_per_member_inr: number;  // e.g. ₹2.00 or ₹1.50 per member minimum floor
   admin_upi_id: string;             // e.g. yourname@paytm
   admin_telegram_handle: string;    // e.g. @MudraAdmin
   bot_username: string;             // e.g. @MudraTube_bot

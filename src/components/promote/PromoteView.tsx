@@ -13,6 +13,8 @@ import {
   ExternalLink,
   Camera,
   AlertTriangle,
+  Layers,
+  Sliders,
 } from "lucide-react";
 import { PromoPackage, GlobalConfig, UserProfile } from "@/types";
 
@@ -36,7 +38,12 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
   config,
   onSubmitPromotion,
 }) => {
-  const [selectedPkgId, setSelectedPkgId] = useState<string>(packages[1]?.id || packages[0]?.id || "");
+  // Plan Mode: "bundle" or "custom"
+  const [planMode, setPlanMode] = useState<"bundle" | "custom">("bundle");
+  const [selectedPkgId, setSelectedPkgId] = useState<string>(packages[0]?.id || "");
+  const [customMembers, setCustomMembers] = useState<number | string>(500);
+
+  // Form inputs
   const [channelInput, setChannelInput] = useState("");
   const [contactInput, setContactInput] = useState(user.username ? `@${user.username}` : "");
   const [utrInput, setUtrInput] = useState("");
@@ -45,13 +52,18 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
   const [success, setSuccess] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
 
-  const selectedPkg = packages.find((p) => p.id === selectedPkgId) || packages[0] || {
-    id: "default",
-    title: "Starter Plan",
-    members: 500,
-    price_inr: 1000,
-    features: [],
-  };
+  // Minimum rate per member set by admin (e.g. ₹2.00 or ₹1.50)
+  const minRatePerMember = config.min_rate_per_member_inr || 2.0;
+
+  // Calculate members & price based on mode
+  const selectedPkg = packages.find((p) => p.id === selectedPkgId) || packages[0];
+  
+  const parsedCustomMembers = Math.max(50, Number(customMembers) || 0);
+  const calculatedCustomPrice = Math.max(100, Math.round(parsedCustomMembers * minRatePerMember));
+
+  const effectiveMembers = planMode === "bundle" ? (selectedPkg?.members || 500) : parsedCustomMembers;
+  const effectivePrice = planMode === "bundle" ? (selectedPkg?.price_inr || 1000) : calculatedCustomPrice;
+  const effectiveTitle = planMode === "bundle" ? (selectedPkg?.title || "Standard Bundle") : `Custom Plan (${effectiveMembers} Members)`;
 
   const adminUpi = config.admin_upi_id || "admin@paytm";
   const adminTgHandle = (config.admin_telegram_handle || "@admin_mudratube").replace("@", "");
@@ -65,7 +77,7 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
 
   const handleDmAdminScreenshot = () => {
     const text = encodeURIComponent(
-      `Hello Admin! I have paid ₹${selectedPkg.price_inr} for Channel Promotion.\n\nChannel: ${channelInput || "N/A"}\nPackage: ${selectedPkg.title} (${selectedPkg.members} Members)\nUser ID: ${user.user_id}\nUTR: ${utrInput || "Sending screenshot..."}`
+      `Hello Admin! I have paid ₹${effectivePrice} for Channel Promotion.\n\nChannel: ${channelInput || "N/A"}\nPlan: ${effectiveTitle}\nMembers: ${effectiveMembers}\nUser ID: ${user.user_id}\nUTR: ${utrInput || "Sending screenshot..."}`
     );
     window.open(`https://t.me/${adminTgHandle}?text=${text}`, "_blank");
   };
@@ -77,11 +89,11 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
     setIsSubmitting(true);
     const ok = await onSubmitPromotion({
       channel: channelInput.trim(),
-      members: selectedPkg.members,
-      price_inr: selectedPkg.price_inr,
+      members: effectiveMembers,
+      price_inr: effectivePrice,
       utr_number: utrInput.trim(),
       contact: contactInput.trim(),
-      packageId: selectedPkg.id,
+      packageId: planMode === "bundle" ? selectedPkg?.id : "custom_plan",
     });
     setIsSubmitting(false);
 
@@ -111,70 +123,164 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
         </p>
       </div>
 
-      {/* Package Selection */}
-      <div className="space-y-3">
-        <h4 className="text-xs font-extrabold text-sky-950 uppercase tracking-wider px-1">
-          1. Choose Promotion Tier
-        </h4>
+      {/* Plan Mode Switcher */}
+      <div className="p-1 rounded-2xl glass-card border border-white/80 flex gap-1 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setPlanMode("bundle")}
+          className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+            planMode === "bundle"
+              ? "btn-tactile-sky text-white shadow-sm"
+              : "text-sky-800 hover:bg-white/60"
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Pre-Made Bundles</span>
+        </button>
 
-        <div className="grid grid-cols-1 gap-2.5">
-          {packages.map((pkg) => {
-            const isSelected = selectedPkgId === pkg.id;
-
-            return (
-              <div
-                key={pkg.id}
-                onClick={() => setSelectedPkgId(pkg.id)}
-                className={`rounded-2xl p-4 glass-card cursor-pointer transition-all duration-200 border relative ${
-                  isSelected
-                    ? "border-sky-500 ring-2 ring-sky-400/40 bg-sky-50/90 shadow-md"
-                    : "border-white/80 hover:border-sky-200"
-                }`}
-              >
-                {pkg.popular && (
-                  <span className="absolute -top-2.5 right-4 bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-extrabold px-2.5 py-0.5 rounded-full shadow-sm">
-                    {pkg.badge || "MOST POPULAR"}
-                  </span>
-                )}
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h5 className="text-sm font-bold text-sky-950">
-                      {pkg.title}
-                    </h5>
-                    <div className="text-xs font-semibold text-sky-700">
-                      {pkg.members.toLocaleString()} Real Active Members
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-base font-black text-sky-950">
-                      ₹{pkg.price_inr.toLocaleString()}
-                    </div>
-                    <span className="text-[10px] text-sky-600 font-bold">
-                      Fixed One-Time
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-2.5 pt-2 border-t border-sky-200/50 flex flex-wrap gap-2 text-[11px] text-sky-800">
-                  {pkg.features.map((feat, idx) => (
-                    <span key={idx} className="flex items-center gap-1">
-                      <Check className="w-3 h-3 text-emerald-600 shrink-0" />
-                      <span>{feat}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <button
+          type="button"
+          onClick={() => setPlanMode("custom")}
+          className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+            planMode === "custom"
+              ? "btn-tactile-sky text-white shadow-sm"
+              : "text-sky-800 hover:bg-white/60"
+          }`}
+        >
+          <Sliders className="w-4 h-4" />
+          <span>Custom Plan</span>
+        </button>
       </div>
 
-      {/* 3-Step Execution Form */}
+      {/* Step 1: Package Selection or Custom Configuration */}
+      <div className="space-y-3">
+        {planMode === "bundle" ? (
+          <>
+            <div className="flex items-center justify-between px-1">
+              <h4 className="text-xs font-extrabold text-sky-950 uppercase tracking-wider">
+                1. Select Package Bundle
+              </h4>
+              <span className="text-[11px] text-sky-700 font-semibold">
+                Tap card to select
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5">
+              {packages.map((pkg) => {
+                const isSelected = selectedPkgId === pkg.id;
+
+                return (
+                  <div
+                    key={pkg.id}
+                    onClick={() => setSelectedPkgId(pkg.id)}
+                    className={`rounded-2xl p-4 glass-card cursor-pointer transition-all duration-200 border relative ${
+                      isSelected
+                        ? "border-sky-500 ring-2 ring-sky-400/50 bg-sky-50 shadow-md"
+                        : "border-white/80 hover:border-sky-300 bg-white/60"
+                    }`}
+                  >
+                    {pkg.popular && (
+                      <span className="absolute -top-2.5 right-4 bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-extrabold px-2.5 py-0.5 rounded-full shadow-sm">
+                        {pkg.badge || "RECOMMENDED"}
+                      </span>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        {/* Radio indicator */}
+                        <div
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${
+                            isSelected
+                              ? "border-sky-600 bg-sky-600 text-white"
+                              : "border-sky-300 bg-white"
+                          }`}
+                        >
+                          {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
+                        </div>
+
+                        <div>
+                          <h5 className="text-sm font-bold text-sky-950">
+                            {pkg.title}
+                          </h5>
+                          <div className="text-xs font-semibold text-sky-700">
+                            {pkg.members.toLocaleString()} Real Active Members
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-base font-black text-sky-950">
+                          ₹{pkg.price_inr.toLocaleString()}
+                        </div>
+                        <span className="text-[10px] text-sky-600 font-bold block">
+                          Fixed Package
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 pt-2 border-t border-sky-200/50 flex flex-wrap gap-2 text-[11px] text-sky-800">
+                      {pkg.features.map((feat, idx) => (
+                        <span key={idx} className="flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>{feat}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          /* Custom Plan Builder */
+          <div className="rounded-2xl p-4 glass-card border border-sky-300 bg-sky-50/60 space-y-3">
+            <h4 className="text-xs font-extrabold text-sky-950 uppercase tracking-wider">
+              1. Customize Target Members
+            </h4>
+            <p className="text-xs text-sky-700">
+              Enter how many verified Telegram members you wish to gain. Price is dynamically calculated based on our verified rate of <strong>₹{minRatePerMember.toFixed(2)} / member</strong>.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+              <div>
+                <label className="block font-bold text-sky-900 mb-1">
+                  Target Members Count (Min 50)
+                </label>
+                <input
+                  type="number"
+                  min={50}
+                  step={50}
+                  placeholder="e.g. 500, 1000, 2500"
+                  value={customMembers === 0 ? "" : customMembers}
+                  onChange={(e) => setCustomMembers(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-sky-200 text-sm font-bold text-sky-950 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/90 border border-sky-200 flex flex-col justify-center">
+                <span className="text-[10px] font-bold text-sky-700 uppercase">
+                  Calculated Total Campaign Cost:
+                </span>
+                <span className="text-lg font-black text-sky-950">
+                  ₹{calculatedCustomPrice.toLocaleString()}
+                </span>
+                <span className="text-[10px] text-emerald-700 font-semibold">
+                  (₹{minRatePerMember.toFixed(2)} per verified member join)
+                </span>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-amber-100/70 border border-amber-200 text-[11px] text-amber-950 font-medium">
+              💡 Minimum platform floor rate is ₹{minRatePerMember.toFixed(2)} per user to ensure 100% active, non-drop Telegram earners.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Step 2: Verification, Payment & Submission Form */}
       <form onSubmit={handlePromoteSubmit} className="rounded-2xl p-4 glass-card border border-white/80 space-y-4">
         <h5 className="text-xs font-bold text-sky-950 uppercase tracking-wider">
-          2. Complete Verification & Payment
+          2. Verification & Payment
         </h5>
 
         {success && (
@@ -184,15 +290,15 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
               <span>Promotion Request Submitted!</span>
             </div>
             <p className="text-[11px] text-emerald-700">
-              Admin is verifying your payment and bot admin privileges. Once approved, your channel will go live with real-time member progress!
+              Admin is verifying your payment and bot admin privileges. Once approved, your campaign goes live immediately!
             </p>
           </div>
         )}
 
-        {/* Step A: Channel username */}
+        {/* Channel Details */}
         <div>
           <label className="block text-[11px] font-bold text-sky-900 mb-1">
-            Channel Username or Link
+            Channel Username or Public Link
           </label>
           <input
             type="text"
@@ -204,12 +310,12 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
           />
         </div>
 
-        {/* Step B: Mandatory Bot Administrator Instruction */}
+        {/* Bot Admin Instruction */}
         <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-300/80 space-y-2 text-xs">
           <div className="flex items-start gap-2 text-amber-950">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold">Important Requirement:</span>
+              <span className="font-bold">Required Step:</span>
               <p className="text-[11px] text-amber-900 mt-0.5 leading-tight">
                 Add our bot <strong className="font-mono">{botHandle}</strong> as an <strong>Administrator</strong> in your channel before submitting so our API can verify member joins.
               </p>
@@ -230,11 +336,14 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
           </label>
         </div>
 
-        {/* Step C: Payment Card */}
+        {/* Payment Due Card */}
         <div className="p-3.5 rounded-xl bg-sky-100/70 border border-sky-200 space-y-2 text-xs">
           <div className="flex justify-between items-center">
-            <span className="font-bold text-sky-900">Total Payment Due:</span>
-            <span className="text-base font-black text-sky-950">₹{selectedPkg.price_inr}</span>
+            <div>
+              <span className="font-bold text-sky-900 block">Total Payment Due:</span>
+              <span className="text-[10px] text-sky-700">{effectiveTitle} ({effectiveMembers.toLocaleString()} Members)</span>
+            </div>
+            <span className="text-lg font-black text-sky-950">₹{effectivePrice.toLocaleString()}</span>
           </div>
 
           <div className="pt-2 border-t border-sky-200/60 flex items-center justify-between">
@@ -246,7 +355,7 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
             <button
               type="button"
               onClick={handleCopyUpi}
-              className="px-2.5 py-1.5 rounded-lg bg-white text-sky-800 font-bold text-[11px] flex items-center gap-1 shadow-xs active:scale-95 border border-sky-200"
+              className="px-2.5 py-1.5 rounded-lg bg-white text-sky-800 font-bold text-[11px] flex items-center gap-1 shadow-xs active:scale-95 border border-sky-200 shrink-0"
             >
               {copiedUpi ? (
                 <>
@@ -263,7 +372,7 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
           </div>
         </div>
 
-        {/* Step D: Payment Proof Input */}
+        {/* UTR Input */}
         <div>
           <label className="block text-[11px] font-bold text-sky-900 mb-1">
             Payment UTR / Transaction Reference (12 digits)
@@ -278,7 +387,7 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
           />
         </div>
 
-        {/* Step E: Contact and DM Screenshot Option */}
+        {/* Telegram Contact & DM Screenshot */}
         <div>
           <div className="flex justify-between items-center mb-1">
             <label className="text-[11px] font-bold text-sky-900">
@@ -290,7 +399,7 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
               className="text-[11px] font-bold text-sky-600 hover:text-sky-800 flex items-center gap-1 underline"
             >
               <Camera className="w-3 h-3" />
-              <span>DM Screenshot on Telegram</span>
+              <span>DM Screenshot to Admin</span>
             </button>
           </div>
 
