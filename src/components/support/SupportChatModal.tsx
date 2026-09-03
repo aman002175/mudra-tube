@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { MessageSquare, X, Send, ShieldCheck, CheckCheck, Clock, HelpCircle, ExternalLink, Copy } from "lucide-react";
-import { SupportChatMessage, UserProfile } from "@/types";
+import { SupportChatMessage, UserProfile, GlobalConfig } from "@/types";
 
 interface SupportChatModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: UserProfile;
   messages: SupportChatMessage[];
+  config?: GlobalConfig;
   onSendMessage: (text: string) => void;
 }
 
@@ -17,6 +18,7 @@ export const SupportChatModal: React.FC<SupportChatModalProps> = ({
   onClose,
   user,
   messages,
+  config,
   onSendMessage,
 }) => {
   const [inputText, setInputText] = useState("");
@@ -56,7 +58,7 @@ export const SupportChatModal: React.FC<SupportChatModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const helpDeskLink = "https://t.me/mudra_help_desk"; // Replace with real group link or from config
+  const helpDeskLink = config?.help_desk_url || "https://t.me/mudratubehelpdesk";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-sky-950/40 backdrop-blur-md animate-in fade-in duration-200">

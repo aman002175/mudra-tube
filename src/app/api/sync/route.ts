@@ -185,6 +185,16 @@ export async function GET(request: NextRequest) {
     };
   });
 
+  // Collect referrals of this user
+  const userReferrals: any[] = [];
+  if (currentUser) {
+    store.users.forEach((u) => {
+      if (u.referred_by === currentUser.user_id) {
+        userReferrals.push({ user_id: u.user_id, username: u.username, first_name: u.first_name, created_at: u.created_at });
+      }
+    });
+  }
+
   return NextResponse.json({
     success: true,
     isAdmin: false,
@@ -197,6 +207,7 @@ export async function GET(request: NextRequest) {
     packages: store.packages,
     paymentMethods: store.paymentMethods.filter((pm) => pm.is_active),
     config: store.config,
+    my_referrals: userReferrals,
   });
 }
 
@@ -316,6 +327,13 @@ export async function POST(request: NextRequest) {
 
         let existingUser = store.users.get(userId);
         if (!existingUser) {
+          let referredBy = payload.referred_by ? String(payload.referred_by).trim() : undefined;
+          
+          // Verify referrer exists and is not self
+          if (referredBy && (referredBy === userId || !store.users.has(referredBy))) {
+             referredBy = undefined;
+          }
+
           existingUser = {
             user_id: userId,
             username: cleanUsername,
@@ -325,9 +343,26 @@ export async function POST(request: NextRequest) {
             total_withdrawn: 0,
             completed_tasks: [],
             referrals_count: 0,
+            referred_by: referredBy,
             is_banned: false,
             created_at: new Date().toISOString(),
           };
+
+          // Apply flat bonus if enabled
+          if (referredBy && store.config.referral_system_enabled && store.config.referral_reward_type === 'flat_bonus') {
+            const referrer = store.users.get(referredBy);
+            const bonus = Number(store.config.referral_reward_amount) || 0;
+            if (referrer && bonus > 0) {
+              referrer.referrals_count += 1;
+              referrer.balance = Math.round((referrer.balance + bonus) * 100) / 100;
+              referrer.referral_earnings = Math.round(((referrer.referral_earnings || 0) + bonus) * 100) / 100;
+            }
+          } else if (referredBy) {
+            // Just increment count if percentage based or no reward
+            const referrer = store.users.get(referredBy);
+            if (referrer) referrer.referrals_count += 1;
+          }
+
           store.users.set(userId, existingUser);
         } else {
           // If banned, block access
@@ -353,7 +388,15 @@ export async function POST(request: NextRequest) {
         }
 
         persistStore(store);
-        return NextResponse.json({ success: true, user: existingUser });
+        // Collect referrals of this user
+        const myReferrals: any[] = [];
+        store.users.forEach((u) => {
+          if (u.referred_by === existingUser!.user_id) {
+            myReferrals.push({ user_id: u.user_id, username: u.username, first_name: u.first_name, created_at: u.created_at });
+          }
+        });
+
+        return NextResponse.json({ success: true, user: existingUser, my_referrals: myReferrals });
       }
 
       // ----------------------------------------------------
@@ -531,17 +574,37 @@ export async function POST(request: NextRequest) {
         // Deduct balance atomically in ₹ INR
         user.balance = Math.round((user.balance - cleanAmountInr) * 100) / 100;
 
+        let finalAmountInr = cleanAmountInr;
+        let referralCutAmount = 0;
+
+        // Apply Referral Program cut on withdrawal if enabled
+        if (store.config.referral_system_enabled && store.config.referral_reward_type === 'withdrawal_percentage' && user.referred_by) {
+          const percentage = Number(store.config.referral_reward_amount) || 0;
+          if (percentage > 0) {
+            referralCutAmount = Math.round((cleanAmountInr * percentage / 100) * 100) / 100;
+            finalAmountInr = Math.round((cleanAmountInr - referralCutAmount) * 100) / 100;
+            
+            // Add the cut to the referrer's balance
+            const referrer = store.users.get(user.referred_by);
+            if (referrer && referrer.user_id !== user.user_id) {
+              referrer.balance = Math.round((referrer.balance + referralCutAmount) * 100) / 100;
+              referrer.referral_earnings = Math.round(((referrer.referral_earnings || 0) + referralCutAmount) * 100) / 100;
+            }
+          }
+        }
+
         const newWithdrawal: WithdrawalRequest = {
           id: `wd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           user_id: userId,
           username: user.username || userId,
           method,
           payout_address: cleanAddress,
-          coins: cleanAmountInr,
-          amount_inr: cleanAmountInr,
+          coins: finalAmountInr,
+          amount_inr: finalAmountInr,
           status: "pending",
           refunded: false,
           requested_at: new Date().toISOString(),
+          referral_cut_amount: referralCutAmount > 0 ? referralCutAmount : undefined,
         };
 
         store.withdrawals.unshift(newWithdrawal);
@@ -732,7 +795,8 @@ export async function POST(request: NextRequest) {
         } else if (status === "rejected" && refund && !withdrawal.refunded) {
           const user = store.users.get(withdrawal.user_id);
           if (user) {
-            user.balance = Math.round((user.balance + amountToTransfer) * 100) / 100;
+            const refundAmount = amountToTransfer + (withdrawal.referral_cut_amount || 0);
+            user.balance = Math.round((user.balance + refundAmount) * 100) / 100;
             withdrawal.refunded = true;
           }
         }

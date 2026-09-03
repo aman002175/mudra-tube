@@ -10,6 +10,7 @@ import { OfferwallView } from "@/components/offerwalls/OfferwallView";
 import { PromoteView } from "@/components/promote/PromoteView";
 import { WalletView } from "@/components/wallet/WalletView";
 import { ProfileView } from "@/components/profile/ProfileView";
+import { ReferralView } from "@/components/referrals/ReferralView";
 import { WithdrawModal } from "@/components/wallet/WithdrawModal";
 import { SupportChatModal } from "@/components/support/SupportChatModal";
 import { useTelegram } from "@/hooks/useTelegram";
@@ -36,7 +37,7 @@ import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
 
 export default function MudraTubeApp() {
-  const { user: tgUser, initData, isTelegram, isReady, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
+  const { user: tgUser, initData, isTelegram, isReady, startParam, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
 
   // Application State
   const [currentTab, setCurrentTab] = useState<TabType>("tasks");
@@ -52,6 +53,7 @@ export default function MudraTubeApp() {
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
   const [totalUsersCount, setTotalUsersCount] = useState<number>(0);
+  const [myReferrals, setMyReferrals] = useState<UserProfile[]>([]);
 
   // Secure API fetch helper with Telegram InitData signature
   const apiFetch = (url: string, options: RequestInit = {}) => {
@@ -81,6 +83,7 @@ export default function MudraTubeApp() {
             user_id: actualId,
             username: actualUsername,
             first_name: actualFirstName,
+            referred_by: startParam,
           },
         }),
       })
@@ -88,6 +91,7 @@ export default function MudraTubeApp() {
         .then((data) => {
           if (data.success && data.user) {
             setUser(data.user);
+            if (data.my_referrals) setMyReferrals(data.my_referrals);
           }
         })
         .catch(() => {});
@@ -106,6 +110,7 @@ export default function MudraTubeApp() {
               if (data.withdrawals) setWithdrawals(data.withdrawals);
               if (data.promotions) setPromotions(data.promotions);
               if (data.supportMessages) setSupportMessages(data.supportMessages);
+              if (data.my_referrals) setMyReferrals(data.my_referrals);
               if (typeof data.total_users === "number") setTotalUsersCount(data.total_users);
               else if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
             }
@@ -124,6 +129,7 @@ export default function MudraTubeApp() {
               user_id: actualId,
               username: actualUsername,
               first_name: actualFirstName,
+            referred_by: startParam,
               balance: 0,
               total_earned: 0,
               total_withdrawn: 0,
@@ -387,6 +393,7 @@ export default function MudraTubeApp() {
         if (data.withdrawals) setWithdrawals(data.withdrawals);
         if (data.promotions) setPromotions(data.promotions);
         if (data.supportMessages) setSupportMessages(data.supportMessages);
+        if (data.my_referrals) setMyReferrals(data.my_referrals);
         if (typeof data.total_users === "number") setTotalUsersCount(data.total_users);
         else if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
       }
@@ -567,7 +574,19 @@ export default function MudraTubeApp() {
           </div>
         )}
 
-        {/* Tab 5: Profile & Account */}
+        {/* Tab 5: Referrals */}
+        {currentTab === "referrals" && (
+          <div className="animate-in fade-in duration-200">
+            <ReferralView
+              user={user}
+              config={config}
+              allUsers={myReferrals}
+              botUsername={config.bot_username || "@mudratube_bot"}
+            />
+          </div>
+        )}
+
+        {/* Tab 6: Profile & Account */}
         {currentTab === "profile" && (
           <ProfileView
             user={user}
@@ -613,7 +632,7 @@ export default function MudraTubeApp() {
       />
 
       {/* 1-to-1 Private Admin Support Chat Modal */}
-      <SupportChatModal
+      <SupportChatModal config={config}
         isOpen={isSupportOpen}
         onClose={() => setIsSupportOpen(false)}
         user={user}

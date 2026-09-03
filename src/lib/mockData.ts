@@ -24,6 +24,10 @@ export const initialConfig: GlobalConfig = {
   custom_service_title: "need custom solution telegram bot,web,App?? contect here..🚀💰",
   custom_service_telegram: "@amxnbixnoe",
   custom_total_users_count: 0,
+  help_desk_url: "https://t.me/mudratubehelpdesk",
+  referral_system_enabled: false,
+  referral_reward_type: "withdrawal_percentage",
+  referral_reward_amount: 2, // e.g., 2%
 
   // Backward compatibility aliases
   min_withdrawal_coins: 10,

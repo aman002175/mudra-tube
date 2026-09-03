@@ -16,6 +16,8 @@ export interface UserProfile {
   total_withdrawn: number;
   completed_tasks: string[];
   referrals_count: number;
+  referral_earnings?: number;
+  referred_by?: string;
   is_banned: boolean;
   created_at: string;
   saved_upi_id?: string;
@@ -75,6 +77,7 @@ export interface WithdrawalRequest {
   utr_number?: string;
   requested_at: string;
   processed_at?: string;
+  referral_cut_amount?: number; // The amount taken from this withdrawal for the referrer
 }
 
 export interface PromoPackage {
@@ -121,6 +124,11 @@ export interface GlobalConfig {
   custom_service_title: string;
   custom_service_telegram: string;
   custom_total_users_count?: number;
+
+  help_desk_url?: string;
+  referral_system_enabled?: boolean;
+  referral_reward_type?: "flat_bonus" | "withdrawal_percentage";
+  referral_reward_amount?: number;
 
   // Backward compatibility aliases
   min_withdrawal_coins?: number;

@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { CheckCircle2, Gift, Megaphone, Wallet, User } from "lucide-react";
+import { CheckCircle2, Gift, Megaphone, Wallet, User, Users } from "lucide-react";
 
-export type TabType = "tasks" | "offerwalls" | "promote" | "wallet" | "profile";
+export type TabType = "tasks" | "offerwalls" | "promote" | "wallet" | "referrals" | "profile";
 
 interface BottomNavProps {
   currentTab: TabType;
@@ -27,6 +27,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     { id: "tasks", label: "Tasks", icon: CheckCircle2 },
     { id: "offerwalls", label: "Offers", icon: Gift },
     { id: "promote", label: "Promote", icon: Megaphone },
+    { id: "referrals", label: "Refer", icon: Users },
     { id: "wallet", label: "Wallet", icon: Wallet, badge: pendingWithdrawalsCount },
     { id: "profile", label: "Profile", icon: User },
   ];

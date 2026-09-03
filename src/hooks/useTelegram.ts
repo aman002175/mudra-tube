@@ -10,6 +10,7 @@ declare global {
         initData: string;
         initDataUnsafe?: {
           user?: TelegramUser;
+          start_param?: string;
         };
         ready: () => void;
         expand: () => void;
@@ -35,6 +36,7 @@ export function useTelegram() {
   const [initData, setInitData] = useState<string>("");
   const [isTelegram, setIsTelegram] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [startParam, setStartParam] = useState<string>("");
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.Telegram?.WebApp) {
@@ -54,6 +56,10 @@ export function useTelegram() {
 
       if (tg.initData) {
         setInitData(tg.initData);
+      }
+
+      if (tg.initDataUnsafe?.start_param) {
+        setStartParam(tg.initDataUnsafe.start_param);
       }
 
       if (tg.initDataUnsafe?.user) {
@@ -113,6 +119,7 @@ export function useTelegram() {
     initData,
     isTelegram,
     isReady,
+    startParam,
     triggerHaptic,
     triggerNotificationHaptic,
     openLink,

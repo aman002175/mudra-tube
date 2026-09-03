@@ -132,6 +132,10 @@ export default function AdminPortalPage() {
     custom_service_title: initialConfig.custom_service_title || "",
     custom_service_telegram: initialConfig.custom_service_telegram || "",
     custom_total_users_count: String(initialConfig.custom_total_users_count ?? 0),
+    help_desk_url: initialConfig.help_desk_url || "",
+    referral_system_enabled: initialConfig.referral_system_enabled ?? false,
+    referral_reward_type: initialConfig.referral_reward_type || "withdrawal_percentage",
+    referral_reward_amount: String(initialConfig.referral_reward_amount ?? 2),
   });
   const [isSettingsDirty, setIsSettingsDirty] = useState(false);
 
@@ -233,6 +237,10 @@ export default function AdminPortalPage() {
                   custom_service_title: data.config.custom_service_title || "",
                   custom_service_telegram: data.config.custom_service_telegram || "",
                   custom_total_users_count: String(data.config.custom_total_users_count ?? 0),
+                  help_desk_url: data.config.help_desk_url || "",
+                  referral_system_enabled: data.config.referral_system_enabled ?? false,
+                  referral_reward_type: data.config.referral_reward_type || "withdrawal_percentage",
+                  referral_reward_amount: String(data.config.referral_reward_amount ?? 2),
                 });
               }
             }
@@ -749,6 +757,10 @@ export default function AdminPortalPage() {
       custom_service_title: settingsInputs.custom_service_title.trim(),
       custom_service_telegram: settingsInputs.custom_service_telegram.trim(),
       custom_total_users_count: Math.max(0, parseInt(settingsInputs.custom_total_users_count) || 0),
+      help_desk_url: settingsInputs.help_desk_url.trim(),
+      referral_system_enabled: Boolean(settingsInputs.referral_system_enabled),
+      referral_reward_type: settingsInputs.referral_reward_type as "flat_bonus" | "withdrawal_percentage",
+      referral_reward_amount: parseFloat(settingsInputs.referral_reward_amount) || 2,
       ...(customCfg || {}),
     };
     try {
@@ -778,6 +790,10 @@ export default function AdminPortalPage() {
           custom_service_title: d.config.custom_service_title || "",
           custom_service_telegram: d.config.custom_service_telegram || "",
           custom_total_users_count: String(d.config.custom_total_users_count ?? 0),
+          help_desk_url: d.config.help_desk_url || "",
+          referral_system_enabled: d.config.referral_system_enabled ?? false,
+          referral_reward_type: d.config.referral_reward_type || "withdrawal_percentage",
+          referral_reward_amount: String(d.config.referral_reward_amount ?? 2),
         });
         setConfigSavedToast(true);
         setTimeout(() => setConfigSavedToast(false), 3000);
@@ -2664,6 +2680,92 @@ export default function AdminPortalPage() {
                     Reset to Default (@amxnbixnoe)
                   </button>
                 </div>
+              </div>
+
+              {/* HELP DESK URL */}
+              <div className="p-3.5 rounded-2xl bg-white/70 border border-sky-100 space-y-3">
+                <div>
+                  <label className="block font-bold text-sky-950 mb-1">
+                    Telegram Help Desk Group URL
+                  </label>
+                  <p className="text-[10px] text-sky-700/80 mb-2">
+                    Used for community support and proofs via the support modal.
+                  </p>
+                  <input
+                    type="text"
+                    value={settingsInputs.help_desk_url}
+                    onChange={(e) => {
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({ ...settingsInputs, help_desk_url: e.target.value });
+                    }}
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 font-mono font-bold text-sky-950 text-xs"
+                    placeholder="https://t.me/mudratubehelpdesk"
+                  />
+                </div>
+              </div>
+
+              {/* REFERRAL SYSTEM SETTINGS */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-emerald-950 flex items-center gap-1.5">
+                    <span>👥 Referral Program Settings</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settingsInputs.referral_system_enabled}
+                      onChange={(e) => {
+                        setIsSettingsDirty(true);
+                        setSettingsInputs({ ...settingsInputs, referral_system_enabled: e.target.checked });
+                      }}
+                      className="rounded text-emerald-600"
+                    />
+                    <span className="font-bold text-emerald-900 text-xs">Active</span>
+                  </label>
+                </div>
+
+                {settingsInputs.referral_system_enabled && (
+                  <div className="space-y-3 pt-2">
+                    <div>
+                      <label className="block font-bold text-emerald-900 mb-1 text-[11px]">
+                        Reward Type
+                      </label>
+                      <select
+                        value={settingsInputs.referral_reward_type}
+                        onChange={(e) => {
+                          setIsSettingsDirty(true);
+                          setSettingsInputs({ ...settingsInputs, referral_reward_type: e.target.value as "flat_bonus" | "withdrawal_percentage" });
+                        }}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-emerald-200 font-bold text-emerald-950 text-xs"
+                      >
+                        <option value="withdrawal_percentage">Percentage Cut on Withdrawal (%)</option>
+                        <option value="flat_bonus">Flat Bonus on Join (₹)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-emerald-900 mb-1 text-[11px]">
+                        Reward Amount ({settingsInputs.referral_reward_type === 'withdrawal_percentage' ? '%' : '₹'})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={settingsInputs.referral_reward_amount}
+                        onChange={(e) => {
+                          setIsSettingsDirty(true);
+                          setSettingsInputs({ ...settingsInputs, referral_reward_amount: e.target.value });
+                        }}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-emerald-200 font-bold text-emerald-950 text-xs"
+                        placeholder="e.g. 2 for 2%"
+                      />
+                      <p className="text-[10px] text-emerald-700/80 mt-1">
+                        {settingsInputs.referral_reward_type === 'withdrawal_percentage' 
+                          ? "When referred user withdraws, this % is cut from their withdrawal and added to referrer's balance."
+                          : "Referrer gets this flat ₹ amount immediately when a new user joins via their link."}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="pt-2 space-y-2">
