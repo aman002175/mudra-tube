@@ -17,7 +17,7 @@ import {
   initialTasks,
 } from "@/lib/mockData";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
 
 export interface DatabaseState {
   users: Record<string, UserProfile>;
@@ -329,4 +329,56 @@ export function addSupportMessage(msg: SupportChatMessage): SupportChatMessage {
   dbState.supportMessages.push(msg);
   saveDatabase(dbState);
   return msg;
+}
+
+export async function pullFromFirestore(): Promise<DatabaseState | null> {
+  if (!isFirebaseConfigured) return null;
+  try {
+    const state = getDefaultState();
+    
+    // 1. Config
+    const configSnap = await getDoc(doc(db, "global_config", "platform_settings"));
+    if (configSnap.exists()) {
+      state.config = { ...state.config, ...configSnap.data() };
+    }
+
+    // Generic fetch helper
+    const fetchColl = async (collName: string) => {
+      const snap = await getDocs(collection(db, collName));
+      return snap.docs.map(d => d.data());
+    };
+
+    // 2. Users
+    const usersList = await fetchColl("users");
+    usersList.forEach(u => { state.users[u.user_id] = u as any; });
+
+    // 3. Tasks
+    const tasks = await fetchColl("tasks");
+    if (tasks.length > 0) state.tasks = tasks as any;
+
+    // 4. Packages
+    const pkgs = await fetchColl("packages");
+    if (pkgs.length > 0) state.packages = pkgs as any;
+
+    // 5. Payment Methods
+    const pms = await fetchColl("paymentMethods");
+    if (pms.length > 0) state.paymentMethods = pms as any;
+
+    // 6. Withdrawals
+    const wds = await fetchColl("withdrawals");
+    if (wds.length > 0) state.withdrawals = wds as any;
+
+    // 7. Promotions
+    const promos = await fetchColl("promotions");
+    if (promos.length > 0) state.promotions = promos as any;
+
+    // 8. Support Messages
+    const msgs = await fetchColl("supportMessages");
+    if (msgs.length > 0) state.supportMessages = msgs as any;
+
+    return state;
+  } catch (err) {
+    console.error("Firebase pull error:", err);
+    return null;
+  }
 }

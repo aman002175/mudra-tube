@@ -25,7 +25,7 @@ import {
   verifyAdminSessionToken,
   logSecurityIncident,
 } from "@/lib/security";
-import { loadDatabase, saveDatabase } from "@/lib/db";
+import { loadDatabase, saveDatabase, pullFromFirestore } from "@/lib/db";
 
 // ==========================================
 // PERSISTENT SERVER STORE
@@ -47,9 +47,16 @@ declare global {
   var __mudratube_live_store: LiveStore | undefined;
 }
 
-function getLiveStore(): LiveStore {
+async function getLiveStore(): Promise<LiveStore> {
   if (!global.__mudratube_live_store) {
-    const dbState = loadDatabase();
+    let dbState = await pullFromFirestore();
+    if (!dbState) {
+      dbState = loadDatabase();
+    } else {
+      // Keep local FS in sync with pulled Firebase state
+      saveDatabase(dbState);
+    }
+    
     const userMap = new Map<string, UserProfile>();
     for (const [uid, u] of Object.entries(dbState.users || {})) {
       userMap.set(uid, u);
@@ -106,7 +113,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const store = getLiveStore();
+  const store = await getLiveStore();
   const searchParams = request.nextUrl.searchParams;
   const rawUserId = searchParams.get("user_id");
   const userId = rawUserId ? sanitizeString(rawUserId, 64) : null;
@@ -216,7 +223,7 @@ export async function GET(request: NextRequest) {
 // ==========================================
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request);
-  const store = getLiveStore();
+  const store = await getLiveStore();
 
   // 1. General IP Rate Limit for POST
   const generalRate = rateLimiter.check(
