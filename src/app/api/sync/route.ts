@@ -148,13 +148,50 @@ export async function GET(request: NextRequest) {
     ? store.supportMessages.filter((m) => m.user_id === userId)
     : [];
 
+  // User's own promotions with live subscriber progress calculation
+  const userPromotions = userId
+    ? store.promotions.filter((p) => p.user_id === userId)
+    : [];
+
+  const enrichedUserPromotions = userPromotions.map((p) => {
+    const cleanChan = p.channel_username.toLowerCase().replace(/^@/, "");
+    const liveTask = store.tasks.find(
+      (t) =>
+        t.promo_id === p.id ||
+        t.id === p.task_id ||
+        t.username.toLowerCase().replace(/^@/, "") === cleanChan
+    );
+
+    const liveJoinedCount = liveTask
+      ? liveTask.joined_count || 0
+      : p.status === "completed"
+      ? p.target_members
+      : 0;
+
+    let computedLiveStatus: "pending" | "live" | "completed" | "rejected" = "pending";
+    if (p.status === "rejected") {
+      computedLiveStatus = "rejected";
+    } else if (p.status === "completed" || liveJoinedCount >= p.target_members) {
+      computedLiveStatus = "completed";
+    } else if (p.status === "approved" || (liveTask && liveTask.status === "active")) {
+      computedLiveStatus = "live";
+    }
+
+    return {
+      ...p,
+      task_id: liveTask?.id || p.task_id,
+      joined_count: liveJoinedCount,
+      live_status: computedLiveStatus,
+    };
+  });
+
   return NextResponse.json({
     success: true,
     isAdmin: false,
     user: currentUser,
     total_users: totalUsers,
     withdrawals: userWithdrawals,
-    promotions: [], // Hidden from public GET
+    promotions: enrichedUserPromotions,
     supportMessages: userMessages,
     tasks: store.tasks,
     packages: store.packages,
@@ -387,6 +424,13 @@ export async function POST(request: NextRequest) {
           task.joined_count = (task.joined_count || 0) + 1;
           if (task.joined_count >= task.target_members) {
             task.status = "completed";
+            // Also mark originating promotion request as completed
+            const matchedPromo = store.promotions.find(
+              (p) => p.task_id === task.id || p.id === task.promo_id
+            );
+            if (matchedPromo) {
+              matchedPromo.status = "completed";
+            }
           }
         }
 
@@ -740,8 +784,10 @@ export async function POST(request: NextRequest) {
           Math.round((userPoolInr / promo.target_members) * 100) / 100
         );
 
+        const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         const liveTask: ChannelTask = {
-          id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          id: taskId,
+          promo_id: promo.id,
           title: promo.channel_title || promo.channel_username,
           username: promo.channel_username,
           channel_link: promo.channel_link,
@@ -753,6 +799,9 @@ export async function POST(request: NextRequest) {
           badge_label: promo.package_id === "pkg_vip" ? "👑 VIP SPONSOR" : "TOP #1 SPONSOR",
           status: "active",
         };
+
+        promo.status = "approved";
+        promo.task_id = taskId;
 
         store.tasks.unshift(liveTask);
         persistStore(store);

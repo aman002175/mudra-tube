@@ -15,13 +15,22 @@ import {
   AlertTriangle,
   Layers,
   Sliders,
+  TrendingUp,
+  Users,
+  RefreshCw,
+  Clock,
+  Radio,
 } from "lucide-react";
-import { PromoPackage, GlobalConfig, UserProfile } from "@/types";
+import { PromoPackage, GlobalConfig, UserProfile, PromotionRequest, ChannelTask } from "@/types";
 
 interface PromoteViewProps {
   packages: PromoPackage[];
   user: UserProfile;
   config: GlobalConfig;
+  promotions?: PromotionRequest[];
+  tasks?: ChannelTask[];
+  onRefresh?: () => Promise<void>;
+  isSyncing?: boolean;
   onSubmitPromotion: (data: {
     channel: string;
     members: number;
@@ -36,8 +45,15 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
   packages,
   user,
   config,
+  promotions = [],
+  tasks = [],
+  onRefresh,
+  isSyncing = false,
   onSubmitPromotion,
 }) => {
+  // Top view tab: "order" (new promotion) vs "campaigns" (my active/past campaigns)
+  const [activeView, setActiveView] = useState<"order" | "campaigns">("order");
+  const [campaignFilter, setCampaignFilter] = useState<"all" | "live" | "pending" | "completed">("all");
   // Plan Mode: "bundle" or "custom"
   const [planMode, setPlanMode] = useState<"bundle" | "custom">("bundle");
   const [selectedPkgId, setSelectedPkgId] = useState<string>(packages[0]?.id || "");
@@ -137,57 +153,383 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
       setChannelInput("");
       setUtrInput("");
       setBotAdminConfirmed(false);
+      if (onRefresh) onRefresh();
+      setActiveView("campaigns");
       setTimeout(() => setSuccess(false), 5000);
     }
   };
 
+  // Promoter Lifetime Stats
+  const userPromos = promotions || [];
+  const totalSpent = userPromos.reduce((sum, p) => sum + (Number(p.price_inr) || 0), 0);
+  const totalCampaigns = userPromos.length;
+  const totalSubsDelivered = userPromos.reduce((sum, p) => {
+    return sum + (Number(p.joined_count) || (p.status === "completed" ? p.target_members : 0));
+  }, 0);
+  const liveCount = userPromos.filter(
+    (p) => p.live_status === "live" || (p.status === "approved" && p.live_status !== "completed")
+  ).length;
+  const pendingCount = userPromos.filter((p) => p.status === "pending").length;
+  const completedCount = userPromos.filter(
+    (p) => p.status === "completed" || p.live_status === "completed"
+  ).length;
+
+  const filteredPromos = userPromos.filter((p) => {
+    if (campaignFilter === "live") return p.live_status === "live" || (p.status === "approved" && p.live_status !== "completed");
+    if (campaignFilter === "pending") return p.status === "pending";
+    if (campaignFilter === "completed") return p.status === "completed" || p.live_status === "completed";
+    return true;
+  });
+
   return (
     <div className="space-y-4 px-1 pb-6 animate-in fade-in duration-200">
-      {/* Intro Header */}
-      <div className="rounded-squircle glass-card p-5 border border-white/85 shadow-glass">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded-xl bg-sky-100 flex items-center justify-center text-sky-600">
-            <Megaphone className="w-4 h-4" />
+      {/* View Switcher: New Order vs My Campaigns */}
+      <div className="p-1 rounded-2xl glass-card border border-white/90 flex gap-1 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setActiveView("order")}
+          className={`flex-1 py-2 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+            activeView === "order"
+              ? "btn-tactile-sky text-white shadow-sm"
+              : "text-sky-800 hover:bg-white/60"
+          }`}
+        >
+          <Megaphone className="w-3.5 h-3.5" />
+          <span>Launch Promotion</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveView("campaigns")}
+          className={`flex-1 py-2 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+            activeView === "campaigns"
+              ? "btn-tactile-sky text-white shadow-sm"
+              : "text-sky-800 hover:bg-white/60"
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5" />
+          <span>My Campaigns ({userPromos.length})</span>
+          {liveCount > 0 && (
+            <span className="flex h-2 w-2 relative ml-0.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* VIEW 1: MY CAMPAIGNS & PROMOTER HISTORY */}
+      {activeView === "campaigns" && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Promoter Lifetime Performance Dashboard */}
+          <div className="rounded-2xl glass-card p-4 border border-white space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                  Promoter Channel Performance
+                </span>
+                <h4 className="text-sm font-black text-sky-950">Growth & Investment Tracker</h4>
+              </div>
+
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={() => onRefresh()}
+                  disabled={isSyncing}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-90 ${
+                    isSyncing
+                      ? "bg-sky-200 text-sky-900 sync-threat-pulse"
+                      : "bg-sky-100 text-sky-800 hover:bg-sky-200"
+                  }`}
+                  title="Live Database Refresh"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "sync-threat-spin" : ""}`} />
+                  <span>{isSyncing ? "Syncing..." : "Live Sync"}</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center pt-1">
+              <div className="p-3 rounded-xl bg-white/75 border border-sky-100 shadow-xs">
+                <span className="block text-[10px] font-bold text-sky-700">Total Spent</span>
+                <span className="text-sm font-black text-sky-950 block mt-0.5">
+                  ₹{totalSpent.toLocaleString()}
+                </span>
+                <span className="text-[9px] text-sky-600">INR Paid</span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/75 border border-sky-100 shadow-xs">
+                <span className="block text-[10px] font-bold text-sky-700">Channels</span>
+                <span className="text-sm font-black text-sky-950 block mt-0.5">
+                  {totalCampaigns}
+                </span>
+                <span className="text-[9px] text-sky-600">Promoted</span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/75 border border-emerald-100 shadow-xs">
+                <span className="block text-[10px] font-bold text-emerald-700">Subscribers</span>
+                <span className="text-sm font-black text-emerald-700 block mt-0.5">
+                  +{totalSubsDelivered.toLocaleString()}
+                </span>
+                <span className="text-[9px] text-emerald-600">Gained</span>
+              </div>
+            </div>
           </div>
-          <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider">
-            Promote Your Telegram Channel
-          </h3>
+
+          {/* Filter Tabs */}
+          <div className="flex gap-1 overflow-x-auto pb-1 text-xs">
+            <button
+              onClick={() => setCampaignFilter("all")}
+              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
+                campaignFilter === "all"
+                  ? "bg-sky-500 text-white shadow-xs"
+                  : "bg-white/70 text-sky-800 hover:bg-white"
+              }`}
+            >
+              All ({userPromos.length})
+            </button>
+            <button
+              onClick={() => setCampaignFilter("live")}
+              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                campaignFilter === "live"
+                  ? "bg-emerald-600 text-white shadow-xs"
+                  : "bg-white/70 text-sky-800 hover:bg-white"
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Live in Tasks ({liveCount})</span>
+            </button>
+            <button
+              onClick={() => setCampaignFilter("pending")}
+              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
+                campaignFilter === "pending"
+                  ? "bg-amber-500 text-white shadow-xs"
+                  : "bg-white/70 text-sky-800 hover:bg-white"
+              }`}
+            >
+              Pending Approval ({pendingCount})
+            </button>
+            <button
+              onClick={() => setCampaignFilter("completed")}
+              className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
+                campaignFilter === "completed"
+                  ? "bg-purple-600 text-white shadow-xs"
+                  : "bg-white/70 text-sky-800 hover:bg-white"
+              }`}
+            >
+              Completed ({completedCount})
+            </button>
+          </div>
+
+          {/* Campaigns List */}
+          {filteredPromos.length === 0 ? (
+            <div className="rounded-2xl glass-card p-6 border border-white text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-sky-100 flex items-center justify-center text-sky-600 mx-auto">
+                <Megaphone className="w-6 h-6" />
+              </div>
+              <div>
+                <h5 className="font-extrabold text-sky-950 text-sm">No promotions in this category</h5>
+                <p className="text-xs text-sky-700 mt-1 max-w-xs mx-auto">
+                  {campaignFilter === "all"
+                    ? "You have not promoted any Telegram channels yet. Launch your first campaign now to gain genuine members!"
+                    : "No channel campaigns currently match this status filter."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveView("order")}
+                className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-extrabold text-xs"
+              >
+                Promote a Channel Now
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredPromos.map((promo) => {
+                const joined = promo.joined_count || (promo.status === "completed" ? promo.target_members : 0);
+                const target = promo.target_members || 1;
+                const percent = Math.min(100, Math.round((joined / target) * 100));
+                const isLive = promo.live_status === "live" || (promo.status === "approved" && promo.live_status !== "completed");
+                const isCompleted = promo.status === "completed" || promo.live_status === "completed";
+                const isRejected = promo.status === "rejected";
+
+                return (
+                  <div
+                    key={promo.id}
+                    className="p-4 rounded-2xl glass-card border border-white shadow-sm space-y-3 text-xs"
+                  >
+                    {/* Header with Channel Name & Status Badge */}
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <h5 className="font-black text-sky-950 text-sm truncate">
+                            {promo.channel_title || promo.channel_username}
+                          </h5>
+                          <a
+                            href={promo.channel_link || `https://t.me/${promo.channel_username.replace("@", "")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1 text-sky-600 hover:text-sky-900 shrink-0"
+                            title="Open in Telegram"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                        <p className="text-sky-700 font-mono text-[11px] mt-0.5">
+                          {promo.channel_username}
+                        </p>
+                      </div>
+
+                      {/* Status Badges */}
+                      <div>
+                        {isLive && (
+                          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                            <span>LIVE IN TASKS</span>
+                          </span>
+                        )}
+                        {!isLive && !isCompleted && !isRejected && (
+                          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            <Clock className="w-3 h-3" />
+                            <span>AWAITING APPROVAL</span>
+                          </span>
+                        )}
+                        {isCompleted && (
+                          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200">
+                            <CheckCircle className="w-3 h-3" />
+                            <span>GOAL DELIVERED</span>
+                          </span>
+                        )}
+                        {isRejected && (
+                          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>ORDER REJECTED</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Subscriber Delivery Progress Meter */}
+                    <div className="space-y-1.5 bg-white/70 p-3 rounded-xl border border-sky-100">
+                      <div className="flex justify-between items-center text-[11px] font-bold">
+                        <span className="text-sky-900">
+                          {isLive
+                            ? "Active Subscribers Gained:"
+                            : isCompleted
+                            ? "All Members Delivered:"
+                            : isRejected
+                            ? "Status:"
+                            : "Target Members Promised:"}
+                        </span>
+                        <span className="font-mono text-sky-950 font-black">
+                          {joined.toLocaleString()} / {target.toLocaleString()} ({percent}%)
+                        </span>
+                      </div>
+
+                      <div className="w-full h-2.5 rounded-full bg-sky-100 overflow-hidden relative">
+                        <div
+                          className={`h-full transition-all duration-500 rounded-full ${
+                            isLive
+                              ? "bg-gradient-to-r from-emerald-400 to-sky-500"
+                              : isCompleted
+                              ? "bg-gradient-to-r from-purple-500 to-emerald-500"
+                              : isRejected
+                              ? "bg-rose-400"
+                              : "bg-amber-400"
+                          }`}
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+
+                      <p className="text-[10px] text-sky-700">
+                        {isLive && "🚀 Users are completing tasks and joining your channel right now!"}
+                        {!isLive && !isCompleted && !isRejected && "⏳ Admin is verifying your payment UTR. Once approved, it immediately appears in task list."}
+                        {isCompleted && "🎉 Campaign completed! All promised members have been successfully delivered."}
+                        {isRejected && `Reason: ${promo.rejection_reason || "Payment or Bot verification failed."}`}
+                      </p>
+                    </div>
+
+                    {/* Campaign Financials Details */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5 text-[11px]">
+                      <div className="p-2 rounded-lg bg-white/50 border border-sky-100">
+                        <span className="text-[10px] text-sky-600 block">Total Paid</span>
+                        <span className="font-extrabold text-sky-950">₹{promo.price_inr} INR</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-white/50 border border-sky-100">
+                        <span className="text-[10px] text-sky-600 block">Rate / Member</span>
+                        <span className="font-extrabold text-sky-950">
+                          ₹{(promo.price_inr / target).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-white/50 border border-sky-100">
+                        <span className="text-[10px] text-sky-600 block">Plan</span>
+                        <span className="font-bold text-sky-900 truncate block">
+                          {promo.package_title}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-white/50 border border-sky-100">
+                        <span className="text-[10px] text-sky-600 block">UTR Number</span>
+                        <span className="font-mono font-bold text-sky-950 truncate block">
+                          {promo.utr_number}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <p className="text-xs text-sky-800/80 leading-relaxed mt-1">
-          Acquire verified, real Telegram members. Rewards are dynamically split and credited as users complete verified joins!
-        </p>
-      </div>
+      )}
 
-      {/* Plan Mode Switcher */}
-      <div className="p-1 rounded-2xl glass-card border border-white/80 flex gap-1 shadow-sm">
-        <button
-          type="button"
-          onClick={() => setPlanMode("bundle")}
-          className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
-            planMode === "bundle"
-              ? "btn-tactile-sky text-white shadow-sm"
-              : "text-sky-800 hover:bg-white/60"
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Pre-Made Bundles</span>
-        </button>
+      {/* VIEW 2: NEW CHANNEL PROMOTION FORM */}
+      {activeView === "order" && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Intro Header */}
+          <div className="rounded-squircle glass-card p-5 border border-white/85 shadow-glass">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-8 h-8 rounded-xl bg-sky-100 flex items-center justify-center text-sky-600">
+                <Megaphone className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider">
+                Promote Your Telegram Channel
+              </h3>
+            </div>
+            <p className="text-xs text-sky-800/80 leading-relaxed mt-1">
+              Acquire verified, real Telegram members. Rewards are dynamically split and credited as users complete verified joins!
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={() => setPlanMode("custom")}
-          className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
-            planMode === "custom"
-              ? "btn-tactile-sky text-white shadow-sm"
-              : "text-sky-800 hover:bg-white/60"
-          }`}
-        >
-          <Sliders className="w-4 h-4" />
-          <span>Custom Plan</span>
-        </button>
-      </div>
+          {/* Plan Mode Switcher */}
+          <div className="p-1 rounded-2xl glass-card border border-white/80 flex gap-1 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setPlanMode("bundle")}
+              className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+                planMode === "bundle"
+                  ? "btn-tactile-sky text-white shadow-sm"
+                  : "text-sky-800 hover:bg-white/60"
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>Pre-Made Bundles</span>
+            </button>
 
-      {/* Step 1: Package Selection or Custom Configuration */}
+            <button
+              type="button"
+              onClick={() => setPlanMode("custom")}
+              className={`flex-1 py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+                planMode === "custom"
+                  ? "btn-tactile-sky text-white shadow-sm"
+                  : "text-sky-800 hover:bg-white/60"
+              }`}
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Custom Member Goal</span>
+            </button>
+          </div>
+
+          {/* Step 1: Package Selection or Custom Configuration */}
       <div className="space-y-3">
         {planMode === "bundle" ? (
           <>
@@ -500,6 +842,8 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
           <ArrowRight className="w-4 h-4" />
         </button>
       </form>
+      </div>
+      )}
     </div>
   );
 };

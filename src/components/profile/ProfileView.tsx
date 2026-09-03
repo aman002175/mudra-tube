@@ -21,12 +21,19 @@ import {
   Send,
   ExternalLink,
   Sparkles,
+  TrendingUp,
+  Megaphone,
+  RefreshCw,
 } from "lucide-react";
-import { UserProfile, GlobalConfig } from "@/types";
+import { UserProfile, GlobalConfig, PromotionRequest } from "@/types";
 
 interface ProfileViewProps {
   user: UserProfile;
   config?: GlobalConfig;
+  promotions?: PromotionRequest[];
+  onRefresh?: () => Promise<void>;
+  isSyncing?: boolean;
+  onNavigateToPromote?: () => void;
   onSupportClick?: () => void;
   onUpdateSavedAddresses?: (upi?: string, ton?: string) => void;
 }
@@ -34,10 +41,24 @@ interface ProfileViewProps {
 export const ProfileView: React.FC<ProfileViewProps> = ({
   user,
   config,
+  promotions = [],
+  onRefresh,
+  isSyncing = false,
+  onNavigateToPromote,
   onSupportClick,
   onUpdateSavedAddresses,
 }) => {
   const [copied, setCopied] = useState(false);
+
+  // Promoter Lifetime Stats
+  const totalPromotionSpent = promotions.reduce((sum, p) => sum + (Number(p.price_inr) || 0), 0);
+  const totalPromotedChannels = promotions.length;
+  const totalDeliveredSubs = promotions.reduce((sum, p) => {
+    return sum + (Number(p.joined_count) || (p.status === "completed" ? p.target_members : 0));
+  }, 0);
+  const activeLivePromos = promotions.filter(
+    (p) => p.live_status === "live" || (p.status === "approved" && p.live_status !== "completed")
+  ).length;
 
   // Saved UPI edit state
   const [isEditingUpi, setIsEditingUpi] = useState(false);
@@ -435,6 +456,81 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             {(user.completed_tasks || []).length}
           </div>
         </div>
+      </div>
+
+      {/* CHANNEL SPONSOR & PROMOTION PORTFOLIO */}
+      <div className="rounded-2xl glass-card p-4 border border-white/90 shadow-glass space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-sky-950 uppercase tracking-wider">
+                My Channel Promotions Portfolio
+              </h4>
+              <p className="text-[10px] text-sky-700 font-medium">
+                Telegram channel subscriber growth & spend history
+              </p>
+            </div>
+          </div>
+
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={() => onRefresh()}
+              disabled={isSyncing}
+              className={`p-2 rounded-xl text-xs font-bold transition-all active:scale-90 ${
+                isSyncing
+                  ? "bg-sky-200 text-sky-900 sync-threat-pulse"
+                  : "bg-white/80 text-sky-800 hover:bg-white"
+              }`}
+              title="Live Database Sync"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "sync-threat-spin" : ""}`} />
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center pt-1 text-xs">
+          <div className="p-2.5 rounded-xl bg-white/70 border border-sky-100 shadow-xs">
+            <span className="block text-[10px] font-bold text-sky-700">Total Spent</span>
+            <span className="text-sm font-black text-sky-950 block mt-0.5">
+              ₹{totalPromotionSpent.toFixed(2)}
+            </span>
+            <span className="text-[9px] text-sky-600">Promotion Budget</span>
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-white/70 border border-sky-100 shadow-xs">
+            <span className="block text-[10px] font-bold text-sky-700">Channels</span>
+            <span className="text-sm font-black text-sky-950 block mt-0.5">
+              {totalPromotedChannels}
+            </span>
+            <span className="text-[9px] text-sky-600">
+              {activeLivePromos > 0 ? `${activeLivePromos} Live Now` : "Promoted"}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-white/70 border border-emerald-100 shadow-xs">
+            <span className="block text-[10px] font-bold text-emerald-700">Subscribers</span>
+            <span className="text-sm font-black text-emerald-700 block mt-0.5">
+              +{totalDeliveredSubs.toLocaleString()}
+            </span>
+            <span className="text-[9px] text-emerald-600">Total Joined</span>
+          </div>
+        </div>
+
+        {onNavigateToPromote && (
+          <button
+            type="button"
+            onClick={onNavigateToPromote}
+            className="w-full py-2 px-3 rounded-xl bg-sky-100 hover:bg-sky-200/80 text-sky-800 font-extrabold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+          >
+            <Megaphone className="w-3.5 h-3.5 text-sky-600" />
+            <span>Manage & Track Channel Campaigns</span>
+            <ChevronRight className="w-3.5 h-3.5 text-sky-600" />
+          </button>
+        )}
       </div>
 
       {/* Trust & Verification Badge */}

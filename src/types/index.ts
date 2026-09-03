@@ -24,6 +24,7 @@ export interface UserProfile {
 
 export interface ChannelTask {
   id: string;
+  promo_id?: string;      // Links to PromotionRequest if originated from sponsor order
   title: string;
   username: string;
   channel_link: string;
@@ -52,9 +53,12 @@ export interface PromotionRequest {
   utr_number: string;
   sponsor_contact: string;
   bot_verified: boolean;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "completed";
   rejection_reason?: string;
   created_at: string;
+  task_id?: string;
+  joined_count?: number; // Real-time subscribers gained from tasks
+  live_status?: "pending" | "live" | "completed" | "rejected";
 }
 
 export interface WithdrawalRequest {

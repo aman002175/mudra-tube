@@ -30,6 +30,7 @@ import {
   WithdrawalRequest,
   SupportChatMessage,
   AdminPaymentMethod,
+  PromotionRequest,
 } from "@/types";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
@@ -45,6 +46,8 @@ export default function MudraTubeApp() {
   const [packages, setPackages] = useState<PromoPackage[]>(initialPackages);
   const [paymentMethods, setPaymentMethods] = useState<AdminPaymentMethod[]>(initialPaymentMethods);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>(initialWithdrawals);
+  const [promotions, setPromotions] = useState<PromotionRequest[]>([]);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
@@ -116,8 +119,10 @@ export default function MudraTubeApp() {
             if (data.packages) setPackages(data.packages);
             if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
             if (data.withdrawals) setWithdrawals(data.withdrawals);
+            if (data.promotions) setPromotions(data.promotions);
             if (data.supportMessages) setSupportMessages(data.supportMessages);
-            if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
+            if (typeof data.total_users === "number") setTotalUsersCount(data.total_users);
+            else if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
           }
         })
         .catch(() => {});
@@ -333,14 +338,44 @@ export default function MudraTubeApp() {
         return false;
       }
 
-      if (isFirebaseConfigured && resData.promotion) {
-        addDoc(collection(db, "promotions"), resData.promotion);
+      if (resData.promotion) {
+        setPromotions((prev) => [resData.promotion, ...prev]);
+        if (isFirebaseConfigured) {
+          addDoc(collection(db, "promotions"), resData.promotion);
+        }
       }
       triggerNotificationHaptic("success");
       return true;
     } catch {
       triggerNotificationHaptic("error");
       return false;
+    }
+  };
+
+  // Manual Threat Radar / Liquid Cloud Sync Handler
+  const handleManualSync = async () => {
+    triggerHaptic("medium");
+    setIsSyncing(true);
+    try {
+      const res = await apiFetch(`/api/sync?user_id=${user.user_id}`);
+      const data = await res.json();
+      if (data.success) {
+        if (data.config) setConfig(data.config);
+        if (data.user) setUser(data.user);
+        if (data.tasks) setTasks(data.tasks);
+        if (data.packages) setPackages(data.packages);
+        if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
+        if (data.withdrawals) setWithdrawals(data.withdrawals);
+        if (data.promotions) setPromotions(data.promotions);
+        if (data.supportMessages) setSupportMessages(data.supportMessages);
+        if (typeof data.total_users === "number") setTotalUsersCount(data.total_users);
+        else if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
+      }
+      triggerNotificationHaptic("success");
+    } catch {
+      triggerNotificationHaptic("error");
+    } finally {
+      setTimeout(() => setIsSyncing(false), 700);
     }
   };
 
@@ -435,6 +470,8 @@ export default function MudraTubeApp() {
       <Header
         user={user}
         totalUsers={totalUsersCount}
+        isSyncing={isSyncing}
+        onSyncClick={handleManualSync}
         onCoinClick={() => {
           triggerHaptic("light");
           setIsWithdrawOpen(true);
@@ -488,6 +525,10 @@ export default function MudraTubeApp() {
               packages={packages}
               user={user}
               config={config}
+              promotions={promotions}
+              tasks={tasks}
+              isSyncing={isSyncing}
+              onRefresh={handleManualSync}
               onSubmitPromotion={handleSubmitPromotion}
             />
           </div>
@@ -518,6 +559,13 @@ export default function MudraTubeApp() {
           <ProfileView
             user={user}
             config={config}
+            promotions={promotions}
+            isSyncing={isSyncing}
+            onRefresh={handleManualSync}
+            onNavigateToPromote={() => {
+              triggerHaptic("light");
+              setCurrentTab("promote");
+            }}
             onSupportClick={() => {
               triggerHaptic("light");
               setIsSupportOpen(true);

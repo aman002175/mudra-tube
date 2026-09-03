@@ -72,6 +72,8 @@ export default function AdminPortalPage() {
   const [packages, setPackages] = useState<PromoPackage[]>(initialPackages);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>(initialWithdrawals);
   const [promotionRequests, setPromotionRequests] = useState<PromotionRequest[]>([]);
+  const [isAdminSyncing, setIsAdminSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("Live");
   const [adminProfitCut, setAdminProfitCut] = useState<number>(initialConfig.admin_profit_cut_percent || 60);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
 
@@ -243,6 +245,33 @@ export default function AdminPortalPage() {
     const interval = setInterval(fetchLiveSync, 3000);
     return () => clearInterval(interval);
   }, [isAuthenticated, adminToken, currentSection, isSettingsDirty]);
+
+  const handleManualAdminSync = async () => {
+    setIsAdminSyncing(true);
+    try {
+      const res = await adminFetch("/api/sync");
+      if (res.status === 401 || res.status === 403) {
+        handleLogout();
+        return;
+      }
+      const data = await res.json();
+      if (data && data.success) {
+        if (data.users) setUsersList(data.users);
+        if (data.withdrawals) setWithdrawals(data.withdrawals);
+        if (data.promotions) setPromotionRequests(data.promotions);
+        if (data.tasks) setTasks(data.tasks);
+        if (data.packages) setPackages(data.packages);
+        if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
+        if (data.supportMessages) setSupportMessages(data.supportMessages);
+        if (data.config) setConfig(data.config);
+        setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTimeout(() => setIsAdminSyncing(false), 700);
+    }
+  };
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -855,13 +884,30 @@ export default function AdminPortalPage() {
           </div>
         </div>
 
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-pill text-xs font-bold text-rose-700 hover:bg-rose-50 active:scale-95"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          <span>Lock Out</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Threat Radar / Liquid Cloud Sync Button */}
+          <button
+            onClick={handleManualAdminSync}
+            disabled={isAdminSyncing}
+            title={isAdminSyncing ? "Syncing database with cloud..." : "Sync Database Now"}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 ${
+              isAdminSyncing
+                ? "bg-sky-100 text-sky-700 border-sky-300 sync-threat-pulse"
+                : "glass-pill text-sky-800 hover:bg-white hover:text-sky-950 border-sky-200"
+            }`}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isAdminSyncing ? "sync-threat-spin text-sky-600" : "text-sky-600"}`} />
+            <span>{isAdminSyncing ? "Syncing Cloud..." : `Live Sync (${lastSyncTime})`}</span>
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-pill text-xs font-bold text-rose-700 hover:bg-rose-50 active:scale-95"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Lock Out</span>
+          </button>
+        </div>
       </header>
 
       {/* Main Container */}

@@ -1,12 +1,14 @@
 "use client";
 
 import React from "react";
-import { Coins, Sparkles, MessageSquare, Users } from "lucide-react";
+import { Coins, Sparkles, MessageSquare, Users, RefreshCw } from "lucide-react";
 import { UserProfile } from "@/types";
 
 interface HeaderProps {
   user: UserProfile;
   totalUsers?: number;
+  isSyncing?: boolean;
+  onSyncClick?: () => void;
   onCoinClick: () => void;
   onSupportClick?: () => void;
 }
@@ -14,6 +16,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   user,
   totalUsers,
+  isSyncing = false,
+  onSyncClick,
   onCoinClick,
   onSupportClick,
 }) => {
@@ -44,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
-        {/* Total Platform Users Counter (For Telegram Channel Owners & Sponsors) */}
+        {/* Total Platform Users Counter */}
         {totalUsers !== undefined && (
           <div
             title="Total Registered Platform Users"
@@ -59,27 +63,47 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
+        {/* Threat Radar / Liquid Cloud Sync Button */}
+        {onSyncClick && (
+          <button
+            onClick={onSyncClick}
+            disabled={isSyncing}
+            title={isSyncing ? "Syncing with cloud database..." : "Live Cloud Sync"}
+            className={`relative w-8 h-8 rounded-2xl glass-pill flex items-center justify-center shadow-xs active:scale-90 transition-all ${
+              isSyncing
+                ? "bg-sky-100 text-sky-600 sync-threat-pulse border-sky-300"
+                : "text-sky-700 hover:bg-white hover:text-sky-900 border-sky-200/80"
+            }`}
+          >
+            {isSyncing ? (
+              <RefreshCw className="w-3.5 h-3.5 sync-threat-spin text-sky-600" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5 text-sky-600 hover:rotate-45 transition-transform" />
+            )}
+          </button>
+        )}
+
         {/* Support Chat Trigger Button */}
         {onSupportClick && (
           <button
             onClick={onSupportClick}
             title="Chat with Admin Support"
-            className="w-8 h-8 rounded-2xl glass-pill text-sky-800 flex items-center justify-center shadow-sm active:scale-95 transition-transform hover:bg-white/80"
+            className="w-8 h-8 rounded-2xl glass-pill text-sky-800 flex items-center justify-center shadow-xs active:scale-90 transition-transform hover:bg-white/80"
           >
             <MessageSquare className="w-3.5 h-3.5 text-sky-700" />
           </button>
         )}
 
-        {/* Tactile Coin Counter Chip */}
+        {/* Direct ₹ INR Cash Balance Chip */}
         <button
           onClick={onCoinClick}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full glass-pill text-sky-950 font-bold text-xs sm:text-sm shadow-sm active:scale-95 transition-transform"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full glass-pill text-sky-950 font-bold text-xs sm:text-sm shadow-xs active:scale-95 transition-transform hover:bg-white/90"
         >
-          <div className="w-5 h-5 rounded-full bg-gradient-to-b from-amber-300 to-amber-500 flex items-center justify-center text-amber-950 shadow-inner">
-            <Coins className="w-3 h-3" />
+          <div className="w-5 h-5 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-[11px] font-black shadow-inner">
+            ₹
           </div>
-          <span className="text-sky-900 font-extrabold tracking-tight">
-            {user.balance.toLocaleString()}
+          <span className="text-emerald-800 font-black tracking-tight">
+            {Number(user.balance || 0).toFixed(2)}
           </span>
         </button>
       </div>
