@@ -238,7 +238,7 @@ export function validateUserId(id: any): { valid: boolean; value: string; error?
     return { valid: false, value: "", error: "Invalid user ID format" };
   }
   // Reject browser demo users from polluting the database
-  if (cleanId.startsWith("demo_")) {
+  if (cleanId.startsWith("demo_") || cleanId.startsWith("browser_")) {
     return { valid: false, value: "", error: "Demo users are not allowed in the database" };
   }
   return { valid: true, value: cleanId };

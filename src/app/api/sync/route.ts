@@ -60,7 +60,7 @@ async function getLiveStore(): Promise<LiveStore> {
     
     const userMap = new Map<string, UserProfile>();
     for (const [uid, u] of Object.entries(dbState.users || {})) {
-      if (!uid.startsWith("demo_") && !(u.username || "").startsWith("viewer_")) {
+      if (!uid.startsWith("demo_") && !uid.startsWith("browser_") && !/(^viewer_|^browser_|^@browser_)/i.test(u.username || "")) {
         userMap.set(uid, u);
       }
     }
@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
 
   if (adminCheck.valid) {
     // Admin has full visibility of database state & security incidents
-    const allUsers = Array.from(store.users.values()).filter(u => !u.user_id.startsWith("demo_") && !(u.username || "").startsWith("viewer_"));
+    const allUsers = Array.from(store.users.values()).filter(u => !u.user_id.startsWith("demo_") && !u.user_id.startsWith("browser_") && !/(^viewer_|^browser_|^@browser_)/i.test(u.username || ""));
     return NextResponse.json({
       success: true,
       isAdmin: true,
