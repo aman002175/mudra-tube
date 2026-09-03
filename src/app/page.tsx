@@ -253,16 +253,7 @@ export default function MudraTubeApp() {
 
       // If Firebase configured, persist to Firestore
       if (isFirebaseConfigured && syncData.user) {
-        const userDocRef = doc(db, "users", user.user_id);
-        setDoc(
-          userDocRef,
-          {
-            balance: syncData.user.balance,
-            total_earned: syncData.user.total_earned,
-            completed_tasks: syncData.user.completed_tasks,
-          },
-          { merge: true }
-        );
+        // Backend handles syncToFirestore now
       }
 
       triggerNotificationHaptic("success");
@@ -316,9 +307,7 @@ export default function MudraTubeApp() {
       }
       if (data.withdrawal) {
         setWithdrawals((prev) => [data.withdrawal, ...prev]);
-        if (isFirebaseConfigured) {
-          addDoc(collection(db, "withdrawals"), data.withdrawal);
-        }
+        // Backend handles syncToFirestore now
       }
 
       triggerNotificationHaptic("success");
@@ -361,9 +350,7 @@ export default function MudraTubeApp() {
 
       if (resData.promotion) {
         setPromotions((prev) => [resData.promotion, ...prev]);
-        if (isFirebaseConfigured) {
-          addDoc(collection(db, "promotions"), resData.promotion);
-        }
+        // Backend handles syncToFirestore now
       }
       triggerNotificationHaptic("success");
       return true;
@@ -432,9 +419,7 @@ export default function MudraTubeApp() {
 
       if (data.message) {
         setSupportMessages((prev) => [...prev, data.message]);
-        if (isFirebaseConfigured) {
-          addDoc(collection(db, "support_messages"), data.message);
-        }
+        // Backend handles syncToFirestore now
       }
       triggerNotificationHaptic("success");
     } catch {
@@ -474,13 +459,7 @@ export default function MudraTubeApp() {
       }),
     }).catch(() => {});
 
-    if (isFirebaseConfigured && user.user_id) {
-      setDoc(
-        doc(db, "users", user.user_id),
-        { saved_upi_id: updatedUpi, saved_ton_address: updatedTon },
-        { merge: true }
-      ).catch(() => {});
-    }
+    // Backend handles syncToFirestore now
 
     triggerNotificationHaptic("success");
   };

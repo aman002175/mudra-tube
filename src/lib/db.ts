@@ -146,17 +146,59 @@ export function saveDatabase(state: DatabaseState): void {
   }
 }
 
+const lastSyncedStateHash = new Map<string, string>();
+
 /**
  * Sync entire state or changes to Firebase Firestore
  */
 async function syncToFirestore(state: DatabaseState): Promise<void> {
   try {
+    const syncDoc = async (collectionName: string, id: string, data: any) => {
+      if (!id) return;
+      const key = `${collectionName}/${id}`;
+      const dataHash = JSON.stringify(data);
+      if (lastSyncedStateHash.get(key) === dataHash) return; // Skip if no change
+      
+      await setDoc(doc(db, collectionName, id), data, { merge: true });
+      lastSyncedStateHash.set(key, dataHash);
+    };
+
     // 1. Sync Config
-    await setDoc(doc(db, "global_config", "platform_settings"), state.config, { merge: true });
+    await syncDoc("global_config", "platform_settings", state.config);
 
     // 2. Sync Users
     for (const [userId, user] of Object.entries(state.users)) {
-      await setDoc(doc(db, "users", userId), user, { merge: true });
+      await syncDoc("users", userId, user);
+    }
+
+    // 3. Sync Tasks
+    for (const task of (state.tasks || [])) {
+      await syncDoc("tasks", task.id, task);
+    }
+
+    // 4. Sync Packages
+    for (const pkg of (state.packages || [])) {
+      await syncDoc("packages", pkg.id, pkg);
+    }
+
+    // 5. Sync Payment Methods
+    for (const pm of (state.paymentMethods || [])) {
+      await syncDoc("paymentMethods", pm.id, pm);
+    }
+
+    // 6. Sync Withdrawals
+    for (const wd of (state.withdrawals || [])) {
+      await syncDoc("withdrawals", wd.id, wd);
+    }
+
+    // 7. Sync Promotions
+    for (const promo of (state.promotions || [])) {
+      await syncDoc("promotions", promo.id, promo);
+    }
+
+    // 8. Sync Support Messages
+    for (const msg of (state.supportMessages || [])) {
+      await syncDoc("supportMessages", msg.id, msg);
     }
   } catch (err) {
     console.error("Firestore sync error:", err);
