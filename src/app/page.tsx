@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { MobileShell } from "@/components/layout/MobileShell";
 import { Header } from "@/components/layout/Header";
 import { BottomNav, TabType } from "@/components/layout/BottomNav";
@@ -360,8 +360,19 @@ export default function MudraTubeApp() {
     }
   };
 
+  const lastSyncTimeRef = useRef<number>(0);
+
   // Manual Threat Radar / Liquid Cloud Sync Handler
   const handleManualSync = async () => {
+    const now = Date.now();
+    // 60-second cooldown to prevent server spam
+    if (now - lastSyncTimeRef.current < 60000) {
+      triggerNotificationHaptic("warning");
+      alert("Please wait 1 minute before syncing manually again.");
+      return;
+    }
+    lastSyncTimeRef.current = now;
+    
     triggerHaptic("medium");
     setIsSyncing(true);
     try {
@@ -542,6 +553,8 @@ export default function MudraTubeApp() {
               config={config}
               paymentMethods={paymentMethods}
               withdrawals={withdrawals}
+              promotions={promotions}
+              tasks={tasks}
               onSubmitWithdrawal={handleSubmitWithdrawal}
               onSaveAddress={(method, addr) => {
                 if (method === "UPI") {

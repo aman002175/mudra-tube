@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { Wallet, ArrowUpRight, Clock, CheckCircle, XCircle, Shield, ArrowDownLeft } from "lucide-react";
-import { GlobalConfig, UserProfile, WithdrawalRequest, AdminPaymentMethod } from "@/types";
+import { Wallet, ArrowUpRight, Clock, CheckCircle, XCircle, ArrowDownLeft, Target, History, Receipt } from "lucide-react";
+import { GlobalConfig, UserProfile, WithdrawalRequest, AdminPaymentMethod, PromotionRequest, ChannelTask } from "@/types";
 import { WithdrawModal } from "./WithdrawModal";
 
 interface WalletViewProps {
@@ -10,6 +10,8 @@ interface WalletViewProps {
   config: GlobalConfig;
   withdrawals: WithdrawalRequest[];
   paymentMethods?: AdminPaymentMethod[];
+  promotions?: PromotionRequest[];
+  tasks?: ChannelTask[];
   onSubmitWithdrawal: (method: "UPI" | "TON", address: string, amount: number) => Promise<boolean>;
   onSaveAddress?: (type: "UPI" | "TON", address: string) => void;
 }
@@ -19,6 +21,8 @@ export const WalletView: React.FC<WalletViewProps> = ({
   config,
   withdrawals,
   paymentMethods,
+  promotions = [],
+  tasks = [],
   onSubmitWithdrawal,
   onSaveAddress,
 }) => {
@@ -28,9 +32,19 @@ export const WalletView: React.FC<WalletViewProps> = ({
   const userWithdrawals = (withdrawals || []).filter((w) => w.user_id === user.user_id);
   const currentBalance = Number(user.balance ?? 0);
   const totalEarned = Number(user.total_earned ?? 0);
-  const totalWithdrawn = Number(user.total_withdrawn ?? 0);
   const minWdInr = config.min_withdrawal_inr ?? config.min_withdrawal_coins ?? 10;
   const tonRate = Number(config?.ton_rate_inr || config?.coins_per_ton || 500);
+
+  // Advanced Stats Calculation
+  const totalApprovedWd = userWithdrawals.filter((w) => w.status === "completed").reduce((sum, w) => sum + Number(w.amount_inr || w.coins || 0), 0);
+  const totalPendingWd = userWithdrawals.filter((w) => w.status === "pending").reduce((sum, w) => sum + Number(w.amount_inr || w.coins || 0), 0);
+  const totalRejectedWd = userWithdrawals.filter((w) => w.status === "rejected").reduce((sum, w) => sum + Number(w.amount_inr || w.coins || 0), 0);
+
+  const userPromotions = promotions.filter((p) => p.user_id === user.user_id);
+  const totalDeposit = userPromotions.reduce((sum, p) => sum + Number(p.price_inr || 0), 0);
+
+  // Completed Tasks history
+  const userCompletedTasks = tasks.filter((t) => (user.completed_tasks || []).includes(t.id));
 
   return (
     <div className="space-y-5 px-1 pb-4">
@@ -67,17 +81,33 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/50 text-xs">
-          <div className="p-2 rounded-xl bg-white/50 border border-white/70">
-            <span className="text-sky-700/80 font-medium">Total Earned</span>
-            <div className="text-sm font-bold text-emerald-700 mt-0.5">
+          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200/60 shadow-xs">
+            <span className="text-emerald-800/80 font-bold block text-[10px] uppercase">Lifetime Earned</span>
+            <div className="text-sm font-black text-emerald-900 mt-0.5">
               ₹{totalEarned.toFixed(2)}
             </div>
           </div>
-          <div className="p-2 rounded-xl bg-white/50 border border-white/70">
-            <span className="text-sky-700/80 font-medium">Total Withdrawn</span>
-            <div className="text-sm font-bold text-sky-950 mt-0.5">
-              ₹{totalWithdrawn.toFixed(2)}
+          <div className="p-2.5 rounded-xl bg-sky-50 border border-sky-200/60 shadow-xs">
+            <span className="text-sky-800/80 font-bold block text-[10px] uppercase">Total Withdrawn</span>
+            <div className="text-sm font-black text-sky-900 mt-0.5">
+              ₹{totalApprovedWd.toFixed(2)}
             </div>
+          </div>
+        </div>
+
+        {/* Advanced Ledger Stats */}
+        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+          <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
+            <div className="text-[10px] font-bold text-amber-700">Pending Wd.</div>
+            <div className="text-xs font-black text-amber-900 mt-0.5">₹{totalPendingWd.toFixed(2)}</div>
+          </div>
+          <div className="p-2 rounded-xl bg-rose-50 border border-rose-100">
+            <div className="text-[10px] font-bold text-rose-700">Rejected Wd.</div>
+            <div className="text-xs font-black text-rose-900 mt-0.5">₹{totalRejectedWd.toFixed(2)}</div>
+          </div>
+          <div className="p-2 rounded-xl bg-purple-50 border border-purple-100">
+            <div className="text-[10px] font-bold text-purple-700">Promo Deposit</div>
+            <div className="text-xs font-black text-purple-900 mt-0.5">₹{totalDeposit.toFixed(2)}</div>
           </div>
         </div>
 
@@ -93,12 +123,13 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
       {/* Payout History Section */}
       <div className="space-y-3">
-        <h4 className="text-xs font-extrabold text-sky-950 uppercase tracking-wider px-1">
+        <h4 className="text-xs font-extrabold text-sky-950 uppercase tracking-wider px-1 flex items-center gap-1.5">
+          <Receipt className="w-4 h-4 text-sky-600" />
           Recent Payout History
         </h4>
 
         {userWithdrawals.length === 0 ? (
-          <div className="rounded-2xl p-6 glass-card text-center space-y-2">
+          <div className="rounded-2xl p-6 glass-card text-center space-y-2 border border-white/60">
             <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-500 flex items-center justify-center mx-auto">
               <Clock className="w-6 h-6" />
             </div>
@@ -116,10 +147,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
               return (
                 <div
                   key={w.id}
-                  className="rounded-2xl p-3.5 glass-card border border-white/80 flex items-center justify-between text-xs"
+                  className="rounded-2xl p-3.5 glass-card border border-white/80 flex items-center justify-between text-xs shadow-sm"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center text-sky-700 shadow-sm">
+                    <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center text-sky-700 shadow-sm border border-sky-100">
                       {w.method === "UPI" ? (
                         <span className="font-extrabold text-emerald-600">₹</span>
                       ) : (
@@ -138,19 +169,19 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
                   <div className="text-right">
                     {w.status === "completed" && (
-                      <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px]">
+                      <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px] border border-emerald-200">
                         <CheckCircle className="w-3 h-3" />
                         Completed
                       </span>
                     )}
                     {w.status === "pending" && (
-                      <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full text-[10px]">
+                      <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full text-[10px] border border-amber-200">
                         <Clock className="w-3 h-3" />
                         Pending
                       </span>
                     )}
                     {w.status === "rejected" && (
-                      <span className="inline-flex items-center gap-1 font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full text-[10px]">
+                      <span className="inline-flex items-center gap-1 font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full text-[10px] border border-rose-200">
                         <XCircle className="w-3 h-3" />
                         Rejected
                       </span>
@@ -162,6 +193,39 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Completed Task History */}
+      <div className="space-y-3 pt-2">
+        <h4 className="text-xs font-extrabold text-sky-950 uppercase tracking-wider px-1 flex items-center gap-1.5">
+          <History className="w-4 h-4 text-emerald-600" />
+          Task Earning History
+        </h4>
+        
+        {userCompletedTasks.length === 0 ? (
+          <div className="rounded-2xl p-4 glass-card text-center border border-white/60">
+            <p className="text-xs font-bold text-sky-900">No tasks completed yet</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {userCompletedTasks.map((task) => (
+              <div key={task.id} className="rounded-xl p-3 glass-card border border-white/70 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                    <CheckCircle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-sky-950 truncate max-w-[180px]">{task.title}</div>
+                    <div className="text-[10px] text-sky-700/80 mt-0.5">{task.username}</div>
+                  </div>
+                </div>
+                <div className="font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
+                  + ₹{(task.reward_inr || 0).toFixed(2)}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

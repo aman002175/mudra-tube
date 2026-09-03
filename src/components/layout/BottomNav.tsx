@@ -54,7 +54,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               </span>
 
               {/* Optional Notification Badge */}
-              {tab.badge && tab.badge > 0 && !isActive && (
+              {(tab.badge || 0) > 0 && !isActive && (
                 <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white" />
               )}
             </button>
