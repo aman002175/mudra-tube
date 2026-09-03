@@ -222,6 +222,7 @@ export async function GET(request: NextRequest) {
       firebase_configured: isFirebaseConfigured,
       actual_users_count: actualUsersCount,
       users_in_store: store.users.size,
+      pull_error: (global as any).__firebase_pull_error || null,
     }
   });
 }

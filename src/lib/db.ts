@@ -47,6 +47,7 @@ try {
 }
 
 declare global {
+  var __firebase_pull_error: any;
   var __mudratube_db_state: DatabaseState | undefined;
 }
 
@@ -378,7 +379,7 @@ export async function pullFromFirestore(): Promise<DatabaseState | null> {
 
     return state;
   } catch (err) {
-    console.error("Firebase pull error:", err);
+    console.error("Firebase pull error:", err); global.__firebase_pull_error = (err as any)?.message || String(err);
     return null;
   }
 }
