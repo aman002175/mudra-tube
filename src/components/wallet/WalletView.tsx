@@ -2,13 +2,14 @@
 
 import React, { useState } from "react";
 import { Wallet, ArrowUpRight, Clock, CheckCircle, XCircle, Shield, ArrowDownLeft } from "lucide-react";
-import { GlobalConfig, UserProfile, WithdrawalRequest } from "@/types";
+import { GlobalConfig, UserProfile, WithdrawalRequest, AdminPaymentMethod } from "@/types";
 import { WithdrawModal } from "./WithdrawModal";
 
 interface WalletViewProps {
   user: UserProfile;
   config: GlobalConfig;
   withdrawals: WithdrawalRequest[];
+  paymentMethods?: AdminPaymentMethod[];
   onSubmitWithdrawal: (method: "UPI" | "TON", address: string, coins: number) => Promise<boolean>;
 }
 
@@ -16,6 +17,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   user,
   config,
   withdrawals,
+  paymentMethods,
   onSubmitWithdrawal,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -153,6 +155,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
         onClose={() => setIsModalOpen(false)}
         user={user}
         config={config}
+        paymentMethods={paymentMethods}
         onSubmitWithdrawal={onSubmitWithdrawal}
       />
     </div>

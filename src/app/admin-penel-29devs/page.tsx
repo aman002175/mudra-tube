@@ -189,8 +189,9 @@ export default function AdminPortalPage() {
             if (data.users) setUsersList(data.users);
             if (data.withdrawals) setWithdrawals(data.withdrawals);
             if (data.promotions) setPromotionRequests(data.promotions);
-            if (data.supportMessages) setSupportMessages(data.supportMessages);
-            if (data.tasks && data.tasks.length > 0) setTasks(data.tasks);
+            if (data.tasks) setTasks(data.tasks);
+            if (data.packages) setPackages(data.packages);
+            if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
             if (data.config) setConfig(data.config);
           }
         })
@@ -295,6 +296,30 @@ export default function AdminPortalPage() {
     setSelectedUserForEdit(null);
   };
 
+  // 1. Channel Tasks Persistence
+  const [isSavingTasks, setIsSavingTasks] = useState(false);
+  const [tasksSavedToast, setTasksSavedToast] = useState(false);
+
+  const syncTasks = async (updated: ChannelTask[]) => {
+    setTasks(updated);
+    setIsSavingTasks(true);
+    try {
+      await adminFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "admin_update_tasks",
+          payload: { tasks: updated },
+        }),
+      });
+      setTasksSavedToast(true);
+      setTimeout(() => setTasksSavedToast(false), 3000);
+    } catch (err) {
+      console.error("Failed to sync tasks", err);
+    } finally {
+      setIsSavingTasks(false);
+    }
+  };
+
   const handleCreateTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle || !newTaskLink) return;
@@ -312,7 +337,8 @@ export default function AdminPortalPage() {
       status: "active",
     };
 
-    setTasks((prev) => [newTask, ...prev]);
+    const updated = [newTask, ...tasks];
+    syncTasks(updated);
     setNewTaskTitle("");
     setNewTaskUsername("");
     setNewTaskLink("");
@@ -322,11 +348,39 @@ export default function AdminPortalPage() {
   };
 
   const handleTogglePinTask = (taskId: string) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskId ? { ...t, is_pinned: !t.is_pinned } : t
-      )
+    const updated = tasks.map((t) =>
+      t.id === taskId ? { ...t, is_pinned: !t.is_pinned } : t
     );
+    syncTasks(updated);
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    const updated = tasks.filter((t) => t.id !== taskId);
+    syncTasks(updated);
+  };
+
+  // 2. Ad Packages Persistence
+  const [isSavingPackages, setIsSavingPackages] = useState(false);
+  const [packagesSavedToast, setPackagesSavedToast] = useState(false);
+
+  const syncPackages = async (updated: PromoPackage[]) => {
+    setPackages(updated);
+    setIsSavingPackages(true);
+    try {
+      await adminFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "admin_update_packages",
+          payload: { packages: updated },
+        }),
+      });
+      setPackagesSavedToast(true);
+      setTimeout(() => setPackagesSavedToast(false), 3000);
+    } catch (err) {
+      console.error("Failed to sync packages", err);
+    } finally {
+      setIsSavingPackages(false);
+    }
   };
 
   const handleSavePackage = (e: React.FormEvent) => {
@@ -338,21 +392,20 @@ export default function AdminPortalPage() {
       .map((s) => s.trim())
       .filter(Boolean);
 
+    let updatedPackages: PromoPackage[];
     if (editingPackageId) {
-      setPackages((prev) =>
-        prev.map((p) =>
-          p.id === editingPackageId
-            ? {
-                ...p,
-                title: pkgTitle,
-                members: Number(pkgMembers) || 1000,
-                price_inr: Number(pkgPrice) || 1500,
-                badge: pkgBadge,
-                popular: pkgPopular,
-                features: featArr,
-              }
-            : p
-        )
+      updatedPackages = packages.map((p) =>
+        p.id === editingPackageId
+          ? {
+              ...p,
+              title: pkgTitle,
+              members: Number(pkgMembers) || 1000,
+              price_inr: Number(pkgPrice) || 1500,
+              badge: pkgBadge,
+              popular: pkgPopular,
+              features: featArr,
+            }
+          : p
       );
       setEditingPackageId(null);
     } else {
@@ -365,9 +418,10 @@ export default function AdminPortalPage() {
         popular: pkgPopular,
         features: featArr,
       };
-      setPackages((prev) => [...prev, newPkg]);
+      updatedPackages = [...packages, newPkg];
     }
 
+    syncPackages(updatedPackages);
     setPkgTitle("");
     setPkgMembers(1000);
     setPkgPrice(1500);
@@ -389,7 +443,8 @@ export default function AdminPortalPage() {
   };
 
   const handleDeletePackage = (id: string) => {
-    setPackages((prev) => prev.filter((p) => p.id !== id));
+    const updated = packages.filter((p) => p.id !== id);
+    syncPackages(updated);
   };
 
   const handleApprovePromotion = (req: PromotionRequest) => {
@@ -448,18 +503,40 @@ export default function AdminPortalPage() {
     );
   };
 
-  // Payment methods handlers
+  // 3. Payment methods handlers & Persistence
+  const [isSavingPaymentMethods, setIsSavingPaymentMethods] = useState(false);
+  const [paymentMethodsSavedToast, setPaymentMethodsSavedToast] = useState(false);
+
+  const syncPaymentMethods = async (updated: AdminPaymentMethod[]) => {
+    setPaymentMethods(updated);
+    setIsSavingPaymentMethods(true);
+    try {
+      await adminFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "admin_update_payment_methods",
+          payload: { paymentMethods: updated },
+        }),
+      });
+      setPaymentMethodsSavedToast(true);
+      setTimeout(() => setPaymentMethodsSavedToast(false), 3000);
+    } catch (err) {
+      console.error("Failed to sync payment methods", err);
+    } finally {
+      setIsSavingPaymentMethods(false);
+    }
+  };
+
   const handleSavePaymentMethod = (e: React.FormEvent) => {
     e.preventDefault();
     if (!pmLabel || !pmAddress) return;
 
+    let updatedMethods: AdminPaymentMethod[];
     if (editingPaymentId) {
-      setPaymentMethods((prev) =>
-        prev.map((pm) =>
-          pm.id === editingPaymentId
-            ? { ...pm, type: pmType, label: pmLabel, address_or_vpa: pmAddress, is_active: pmActive }
-            : pm
-        )
+      updatedMethods = paymentMethods.map((pm) =>
+        pm.id === editingPaymentId
+          ? { ...pm, type: pmType, label: pmLabel, address_or_vpa: pmAddress, is_active: pmActive }
+          : pm
       );
       setEditingPaymentId(null);
     } else {
@@ -470,9 +547,10 @@ export default function AdminPortalPage() {
         address_or_vpa: pmAddress,
         is_active: pmActive,
       };
-      setPaymentMethods((prev) => [...prev, newMethod]);
+      updatedMethods = [...paymentMethods, newMethod];
     }
 
+    syncPaymentMethods(updatedMethods);
     setPmLabel("");
     setPmAddress("");
     setPmActive(true);
@@ -489,13 +567,15 @@ export default function AdminPortalPage() {
   };
 
   const handleDeletePaymentMethod = (id: string) => {
-    setPaymentMethods((prev) => prev.filter((pm) => pm.id !== id));
+    const updated = paymentMethods.filter((pm) => pm.id !== id);
+    syncPaymentMethods(updated);
   };
 
   const handleTogglePaymentMethod = (id: string) => {
-    setPaymentMethods((prev) =>
-      prev.map((pm) => (pm.id === id ? { ...pm, is_active: !pm.is_active } : pm))
+    const updated = paymentMethods.map((pm) =>
+      pm.id === id ? { ...pm, is_active: !pm.is_active } : pm
     );
+    syncPaymentMethods(updated);
   };
 
   // Support Reply Handler
@@ -531,6 +611,33 @@ export default function AdminPortalPage() {
     }).catch(() => {});
 
     setAdminReplyText("");
+  };
+
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configSavedToast, setConfigSavedToast] = useState(false);
+
+  const handleSaveConfig = async (customCfg?: GlobalConfig) => {
+    setConfigSaving(true);
+    const targetConfig = customCfg || config;
+    try {
+      const res = await adminFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "admin_update_config",
+          payload: targetConfig,
+        }),
+      });
+      const d = await res.json();
+      if (d.success && d.config) {
+        setConfig(d.config);
+        setConfigSavedToast(true);
+        setTimeout(() => setConfigSavedToast(false), 3000);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setConfigSaving(false);
+    }
   };
 
   // 1. Unauthenticated Login Gate
@@ -1218,6 +1325,25 @@ export default function AdminPortalPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Manual Save Payment Methods Button */}
+              <div className="pt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => syncPaymentMethods(paymentMethods)}
+                  disabled={isSavingPaymentMethods}
+                  className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-extrabold text-xs flex items-center gap-2 active:scale-95 shadow-sm"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingPaymentMethods ? "Saving..." : "Save Payment Methods to Database"}</span>
+                </button>
+
+                {paymentMethodsSavedToast && (
+                  <span className="text-emerald-700 font-bold text-xs bg-emerald-100 px-3 py-1 rounded-xl border border-emerald-300 animate-in fade-in">
+                    ✓ Payment methods saved to database!
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1741,7 +1867,7 @@ export default function AdminPortalPage() {
                         </button>
 
                         <button
-                          onClick={() => setTasks((prev) => prev.filter((x) => x.id !== t.id))}
+                          onClick={() => handleDeleteTask(t.id)}
                           className="text-rose-600 font-bold hover:underline"
                         >
                           Delete
@@ -1751,6 +1877,25 @@ export default function AdminPortalPage() {
                   ))}
                 </div>
               )}
+
+              {/* Manual Save Tasks Button */}
+              <div className="pt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => syncTasks(tasks)}
+                  disabled={isSavingTasks}
+                  className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-extrabold text-xs flex items-center gap-2 active:scale-95 shadow-sm"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingTasks ? "Saving..." : "Save Tasks to Database"}</span>
+                </button>
+
+                {tasksSavedToast && (
+                  <span className="text-emerald-700 font-bold text-xs bg-emerald-100 px-3 py-1 rounded-xl border border-emerald-300 animate-in fade-in">
+                    ✓ Tasks saved to database!
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1969,6 +2114,25 @@ export default function AdminPortalPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Manual Save Packages Button */}
+              <div className="pt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => syncPackages(packages)}
+                  disabled={isSavingPackages}
+                  className="btn-tactile-sky px-4 py-2 rounded-xl text-white font-extrabold text-xs flex items-center gap-2 active:scale-95 shadow-sm"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingPackages ? "Saving..." : "Save Packages to Database"}</span>
+                </button>
+
+                {packagesSavedToast && (
+                  <span className="text-emerald-700 font-bold text-xs bg-emerald-100 px-3 py-1 rounded-xl border border-emerald-300 animate-in fade-in">
+                    ✓ Packages saved to database!
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -2117,6 +2281,124 @@ export default function AdminPortalPage() {
                 />
               </div>
 
+              {/* TOTAL PLATFORM USERS DISPLAY CONTROLLER */}
+              <div className="p-3.5 rounded-2xl bg-sky-50/90 border border-sky-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-sky-950 flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-sky-600" />
+                    <span>Total Platform Users Header Display</span>
+                  </label>
+                  <span className="text-[11px] font-mono font-bold bg-white px-2 py-0.5 rounded-md border border-sky-200 text-sky-800">
+                    Live Database Users: {usersList.length}
+                  </span>
+                </div>
+                <p className="text-[11px] text-sky-700">
+                  Visible to all Telegram channel owners and sponsors in the top app header. Enter custom count or 0 for live count.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={config.custom_total_users_count || 0}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        custom_total_users_count: parseInt(e.target.value) || 0,
+                      })
+                    }
+                    className="flex-1 px-3 py-2 rounded-xl bg-white border border-sky-200 font-bold text-sky-950"
+                    placeholder="e.g. 1500 (0 = show live count)"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setConfig({ ...config, custom_total_users_count: usersList.length })
+                    }
+                    className="px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-800 font-bold hover:bg-sky-100 active:scale-95"
+                  >
+                    Sync Live Count
+                  </button>
+                </div>
+              </div>
+
+              {/* CUSTOM SOLUTION & TELEGRAM BOT/WEB/APP PROMO BANNER */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-purple-50 to-indigo-50 border border-purple-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-purple-950 flex items-center gap-1.5">
+                    <span>🚀 Custom Solution Banner (Profile / Settings)</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.custom_service_enabled !== false}
+                      onChange={(e) =>
+                        setConfig({ ...config, custom_service_enabled: e.target.checked })
+                      }
+                      className="rounded text-purple-600"
+                    />
+                    <span className="font-bold text-purple-900 text-xs">Active</span>
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-purple-900 mb-1 text-[11px]">
+                    Banner Headline / Text
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={config.custom_service_title || ""}
+                    onChange={(e) =>
+                      setConfig({ ...config, custom_service_title: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-purple-200 font-bold text-purple-950 text-xs focus:ring-2 focus:ring-purple-400"
+                    placeholder="need custom solution telegram bot,web,App?? contect here..🚀💰"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-purple-900 mb-1 text-[11px]">
+                    Developer Telegram Username for Direct DMs
+                  </label>
+                  <input
+                    type="text"
+                    value={config.custom_service_telegram || ""}
+                    onChange={(e) =>
+                      setConfig({ ...config, custom_service_telegram: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-purple-200 font-mono font-bold text-purple-950 text-xs"
+                    placeholder="e.g. @amxnbixnoe"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfig({
+                        ...config,
+                        custom_service_enabled: false,
+                      });
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-100 text-rose-800 font-bold text-[11px] hover:bg-rose-200 active:scale-95"
+                  >
+                    Disable / Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfig({
+                        ...config,
+                        custom_service_enabled: true,
+                        custom_service_title: "need custom solution telegram bot,web,App?? contect here..🚀💰",
+                        custom_service_telegram: "@amxnbixnoe",
+                      });
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-purple-100 text-purple-900 font-bold text-[11px] hover:bg-purple-200 active:scale-95"
+                  >
+                    Reset to Default (@amxnbixnoe)
+                  </button>
+                </div>
+              </div>
+
               <div className="pt-2 space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -2145,6 +2427,24 @@ export default function AdminPortalPage() {
 
               <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
                 ✓ Changes take effect immediately across all connected Telegram WebApp clients.
+              </div>
+
+              <div className="pt-3 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => handleSaveConfig()}
+                  disabled={configSaving}
+                  className="btn-tactile-sky px-5 py-2.5 rounded-xl text-white font-extrabold text-xs flex items-center gap-2 active:scale-95 shadow-md"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{configSaving ? "Saving..." : "Save All Platform Settings"}</span>
+                </button>
+
+                {configSavedToast && (
+                  <span className="text-emerald-700 font-bold text-xs bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-300 animate-in fade-in">
+                    ✓ Settings saved successfully!
+                  </span>
+                )}
               </div>
             </div>
           </div>

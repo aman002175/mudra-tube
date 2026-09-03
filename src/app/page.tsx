@@ -20,6 +20,7 @@ import {
   initialTasks,
   initialWithdrawals,
   initialSupportMessages,
+  initialPaymentMethods,
 } from "@/lib/mockData";
 import {
   ChannelTask,
@@ -28,6 +29,7 @@ import {
   UserProfile,
   WithdrawalRequest,
   SupportChatMessage,
+  AdminPaymentMethod,
 } from "@/types";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
@@ -41,10 +43,12 @@ export default function MudraTubeApp() {
   const [config, setConfig] = useState<GlobalConfig>(initialConfig);
   const [tasks, setTasks] = useState<ChannelTask[]>(initialTasks);
   const [packages, setPackages] = useState<PromoPackage[]>(initialPackages);
+  const [paymentMethods, setPaymentMethods] = useState<AdminPaymentMethod[]>(initialPaymentMethods);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>(initialWithdrawals);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
+  const [totalUsersCount, setTotalUsersCount] = useState<number>(0);
 
   // Secure API fetch helper with Telegram InitData signature
   const apiFetch = (url: string, options: RequestInit = {}) => {
@@ -106,6 +110,8 @@ export default function MudraTubeApp() {
           if (data.success) {
             if (data.user) setUser(data.user);
             if (data.tasks) setTasks(data.tasks);
+            if (data.packages) setPackages(data.packages);
+            if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
             if (data.withdrawals) {
               setWithdrawals(data.withdrawals.filter((w: any) => w.user_id === actualId));
             }
@@ -113,6 +119,7 @@ export default function MudraTubeApp() {
               setSupportMessages(data.supportMessages.filter((m: any) => m.user_id === actualId));
             }
             if (data.config) setConfig(data.config);
+            if (data.total_users !== undefined) setTotalUsersCount(data.total_users);
           }
         })
         .catch(() => {});
@@ -396,10 +403,11 @@ export default function MudraTubeApp() {
       if (ton !== undefined) localStorage.setItem("mudratube_saved_ton", ton);
     }
 
+    // Persist to Server database
     apiFetch("/api/sync", {
       method: "POST",
       body: JSON.stringify({
-        action: "connect_user",
+        action: "update_saved_addresses",
         payload: {
           user_id: user.user_id,
           username: user.username,
@@ -410,6 +418,14 @@ export default function MudraTubeApp() {
       }),
     }).catch(() => {});
 
+    if (isFirebaseConfigured && user.user_id) {
+      setDoc(
+        doc(db, "users", user.user_id),
+        { saved_upi_id: updatedUpi, saved_ton_address: updatedTon },
+        { merge: true }
+      ).catch(() => {});
+    }
+
     triggerNotificationHaptic("success");
   };
 
@@ -418,6 +434,7 @@ export default function MudraTubeApp() {
       {/* Sticky Header */}
       <Header
         user={user}
+        totalUsers={totalUsersCount}
         onCoinClick={() => {
           triggerHaptic("light");
           setIsWithdrawOpen(true);
@@ -482,6 +499,7 @@ export default function MudraTubeApp() {
             <WalletView
               user={user}
               config={config}
+              paymentMethods={paymentMethods}
               withdrawals={withdrawals}
               onSubmitWithdrawal={handleSubmitWithdrawal}
             />
@@ -492,6 +510,7 @@ export default function MudraTubeApp() {
         {currentTab === "profile" && (
           <ProfileView
             user={user}
+            config={config}
             onSupportClick={() => {
               triggerHaptic("light");
               setIsSupportOpen(true);
@@ -514,6 +533,7 @@ export default function MudraTubeApp() {
         onClose={() => setIsWithdrawOpen(false)}
         user={user}
         config={config}
+        paymentMethods={paymentMethods}
         onSubmitWithdrawal={handleSubmitWithdrawal}
         onSaveAddress={(method, addr) => {
           if (method === "UPI") {

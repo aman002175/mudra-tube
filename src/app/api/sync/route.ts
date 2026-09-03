@@ -6,6 +6,8 @@ import {
   SupportChatMessage,
   ChannelTask,
   GlobalConfig,
+  AdminPaymentMethod,
+  PromoPackage,
 } from "@/types";
 import { initialConfig, initialPackages, initialPaymentMethods } from "@/lib/mockData";
 import {
@@ -33,6 +35,8 @@ interface LiveStore {
   promotions: PromotionRequest[];
   supportMessages: SupportChatMessage[];
   tasks: ChannelTask[];
+  paymentMethods: AdminPaymentMethod[];
+  packages: PromoPackage[];
   config: GlobalConfig;
   userTaskCooldown: Map<string, number>;
   userWithdrawCooldown: Map<string, number>;
@@ -50,6 +54,8 @@ function getLiveStore(): LiveStore {
       promotions: [],
       supportMessages: [],
       tasks: [],
+      paymentMethods: [...initialPaymentMethods],
+      packages: [...initialPackages],
       config: { ...initialConfig },
       userTaskCooldown: new Map<string, number>(),
       userWithdrawCooldown: new Map<string, number>(),
@@ -86,6 +92,10 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization") || request.headers.get("x-admin-token");
   const adminCheck = verifyAdminSessionToken(authHeader);
 
+  const actualUsersCount = store.users.size;
+  const customUsersCount = store.config.custom_total_users_count || 0;
+  const totalUsers = Math.max(actualUsersCount, customUsersCount);
+
   if (adminCheck.valid) {
     // Admin has full visibility of database state & security incidents
     const allUsers = Array.from(store.users.values());
@@ -94,10 +104,13 @@ export async function GET(request: NextRequest) {
       isAdmin: true,
       user: userId ? store.users.get(userId) || null : null,
       users: allUsers,
+      total_users: totalUsers,
       withdrawals: store.withdrawals,
       promotions: store.promotions,
       supportMessages: store.supportMessages,
       tasks: store.tasks,
+      packages: store.packages,
+      paymentMethods: store.paymentMethods,
       config: store.config,
     });
   }
@@ -116,10 +129,13 @@ export async function GET(request: NextRequest) {
     success: true,
     isAdmin: false,
     user: currentUser,
+    total_users: totalUsers,
     withdrawals: userWithdrawals,
     promotions: [], // Hidden from public GET
     supportMessages: userMessages,
     tasks: store.tasks,
+    packages: store.packages,
+    paymentMethods: store.paymentMethods.filter((pm) => pm.is_active),
     config: store.config,
   });
 }
@@ -688,6 +704,10 @@ export async function POST(request: NextRequest) {
           "channel_tasks_enabled",
           "offerwalls_enabled",
           "maintenance_mode",
+          "custom_service_enabled",
+          "custom_service_title",
+          "custom_service_telegram",
+          "custom_total_users_count",
         ];
 
         for (const key of Object.keys(payload)) {
@@ -710,6 +730,64 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "User not found" }, { status: 404 });
         }
         user.is_banned = !user.is_banned;
+        return NextResponse.json({ success: true, user });
+      }
+
+      // 11. Admin Updates Payment Methods (UPI, TON, Wallets)
+      case "admin_update_payment_methods": {
+        if (Array.isArray(payload.paymentMethods)) {
+          store.paymentMethods = payload.paymentMethods;
+          return NextResponse.json({ success: true, paymentMethods: store.paymentMethods });
+        }
+        return NextResponse.json({ success: false, error: "Invalid paymentMethods array" }, { status: 400 });
+      }
+
+      // 12. Admin Updates Channel Tasks
+      case "admin_update_tasks": {
+        if (Array.isArray(payload.tasks)) {
+          store.tasks = payload.tasks;
+          return NextResponse.json({ success: true, tasks: store.tasks });
+        }
+        return NextResponse.json({ success: false, error: "Invalid tasks array" }, { status: 400 });
+      }
+
+      // 13. Admin Updates Ad Packages
+      case "admin_update_packages": {
+        if (Array.isArray(payload.packages)) {
+          store.packages = payload.packages;
+          return NextResponse.json({ success: true, packages: store.packages });
+        }
+        return NextResponse.json({ success: false, error: "Invalid packages array" }, { status: 400 });
+      }
+
+      // 14. User Updates Saved Payout Addresses (Persistent)
+      case "update_saved_addresses": {
+        const userVal = validateUserId(payload.user_id);
+        if (!userVal.valid) {
+          return NextResponse.json({ success: false, error: "Invalid user_id" }, { status: 400 });
+        }
+        let user = store.users.get(userVal.value);
+        if (!user) {
+          user = {
+            user_id: userVal.value,
+            username: payload.username || `user_${userVal.value}`,
+            first_name: payload.first_name || "Earner",
+            balance: 0,
+            total_earned: 0,
+            total_withdrawn: 0,
+            completed_tasks: [],
+            referrals_count: 0,
+            is_banned: false,
+            created_at: new Date().toISOString(),
+          };
+          store.users.set(userVal.value, user);
+        }
+        if (payload.saved_upi_id !== undefined) {
+          user.saved_upi_id = sanitizeString(payload.saved_upi_id, 100);
+        }
+        if (payload.saved_ton_address !== undefined) {
+          user.saved_ton_address = sanitizeString(payload.saved_ton_address, 100);
+        }
         return NextResponse.json({ success: true, user });
       }
 

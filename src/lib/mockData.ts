@@ -21,6 +21,10 @@ export const initialConfig: GlobalConfig = {
   channel_tasks_enabled: true,
   offerwalls_enabled: true,
   maintenance_mode: false,
+  custom_service_enabled: true,
+  custom_service_title: "need custom solution telegram bot,web,App?? contect here..🚀💰",
+  custom_service_telegram: "@amxnbixnoe",
+  custom_total_users_count: 0,
 };
 
 export const initialTasks: ChannelTask[] = [];

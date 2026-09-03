@@ -18,17 +18,22 @@ import {
   Save,
   X,
   CreditCard,
+  Send,
+  ExternalLink,
+  Sparkles,
 } from "lucide-react";
-import { UserProfile } from "@/types";
+import { UserProfile, GlobalConfig } from "@/types";
 
 interface ProfileViewProps {
   user: UserProfile;
+  config?: GlobalConfig;
   onSupportClick?: () => void;
   onUpdateSavedAddresses?: (upi?: string, ton?: string) => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
   user,
+  config,
   onSupportClick,
   onUpdateSavedAddresses,
 }) => {
@@ -41,6 +46,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   // Saved TON edit state
   const [isEditingTon, setIsEditingTon] = useState(false);
   const [tonInput, setTonInput] = useState(user.saved_ton_address || "");
+
+  const [saveSuccessToast, setSaveSuccessToast] = useState<string | null>(null);
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(user.user_id);
@@ -55,6 +62,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       onUpdateSavedAddresses(upiInput.trim(), user.saved_ton_address);
     }
     setIsEditingUpi(false);
+    setSaveSuccessToast("UPI ID saved to database successfully!");
+    setTimeout(() => setSaveSuccessToast(null), 3000);
   };
 
   const handleDeleteUpi = () => {
@@ -63,6 +72,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
     setUpiInput("");
     setIsEditingUpi(false);
+    setSaveSuccessToast("UPI ID removed from database!");
+    setTimeout(() => setSaveSuccessToast(null), 3000);
   };
 
   const handleSaveTon = (e: React.FormEvent) => {
@@ -72,6 +83,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       onUpdateSavedAddresses(user.saved_upi_id, tonInput.trim());
     }
     setIsEditingTon(false);
+    setSaveSuccessToast("TON address saved to database successfully!");
+    setTimeout(() => setSaveSuccessToast(null), 3000);
   };
 
   const handleDeleteTon = () => {
@@ -80,6 +93,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
     setTonInput("");
     setIsEditingTon(false);
+    setSaveSuccessToast("TON address removed from database!");
+    setTimeout(() => setSaveSuccessToast(null), 3000);
+  };
+
+  const handleContactDev = () => {
+    const raw = config?.custom_service_telegram || "@amxnbixnoe";
+    const cleanHandle = raw.replace(/^@+/, "");
+    const url = `https://t.me/${cleanHandle}`;
+    if (typeof window !== "undefined") {
+      const tg = (window as any).Telegram?.WebApp;
+      if (tg && typeof tg.openTelegramLink === "function") {
+        tg.openTelegramLink(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    }
   };
 
   return (
@@ -112,6 +141,54 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
+      {/* EXCLUSIVE BLINKING / GLOWING CUSTOM SOLUTION PROMO BANNER */}
+      {config?.custom_service_enabled !== false && (
+        <div className="relative group overflow-hidden rounded-3xl p-[2px] bg-gradient-to-r from-amber-400 via-rose-500 to-purple-600 shadow-xl shadow-purple-500/20 animate-pulse transition-all">
+          <div className="rounded-[22px] bg-gradient-to-b from-sky-950 via-slate-900 to-sky-950 text-white p-4 sm:p-5 relative overflow-hidden">
+            {/* Background Ambient Glows */}
+            <div className="absolute -top-12 -right-12 w-28 h-28 bg-purple-500/30 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute -bottom-12 -left-12 w-28 h-28 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
+
+            <div className="relative z-10 space-y-3">
+              {/* Blinking Live Badge */}
+              <div className="flex items-center justify-between">
+                <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-[10px] font-black uppercase tracking-wider text-amber-300">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-90"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                  </span>
+                  <span>Direct Dev Solution</span>
+                </div>
+                <span className="text-[10px] font-bold text-sky-200/90 bg-purple-900/70 px-2 py-0.5 rounded-md border border-purple-400/40">
+                  Verified Builder ⚡
+                </span>
+              </div>
+
+              {/* Title / User Hook */}
+              <div>
+                <h3 className="text-sm sm:text-base font-black tracking-tight text-white leading-snug drop-shadow-sm">
+                  {config?.custom_service_title || "need custom solution telegram bot,web,App?? contect here..🚀💰"}
+                </h3>
+                <p className="text-[11px] text-sky-200/80 font-medium mt-1">
+                  Custom Telegram Mini Apps, Telegram Bots, Full Web Systems & Scalable Solutions.
+                </p>
+              </div>
+
+              {/* Action Button to Open Direct DM */}
+              <button
+                type="button"
+                onClick={handleContactDev}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 via-rose-500 to-purple-600 hover:from-amber-300 hover:to-purple-500 text-white font-black text-xs shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 border border-white/30"
+              >
+                <Send className="w-4 h-4 text-white" />
+                <span>Contact on Telegram DM ({config?.custom_service_telegram || "@amxnbixnoe"})</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-90" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SAVED PAYOUT ADDRESSES (UPI & TON WALLET) */}
       <div className="rounded-2xl glass-card p-5 border border-sky-300/80 shadow-glass space-y-4">
         <div className="flex items-center gap-2.5">
@@ -127,6 +204,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </p>
           </div>
         </div>
+
+        {saveSuccessToast && (
+          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-xs flex items-center gap-1.5 animate-in fade-in">
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{saveSuccessToast}</span>
+          </div>
+        )}
 
         {/* 1. Saved UPI Section */}
         <div className="p-3 rounded-xl bg-white/75 border border-sky-200/80 space-y-2 text-xs">

@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import { X, ArrowRight, ShieldCheck, AlertCircle, CheckCircle2, QrCode, Sparkles } from "lucide-react";
-import { GlobalConfig, UserProfile } from "@/types";
+import { GlobalConfig, UserProfile, AdminPaymentMethod } from "@/types";
 
 interface WithdrawModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: UserProfile;
   config: GlobalConfig;
+  paymentMethods?: AdminPaymentMethod[];
   onSubmitWithdrawal: (method: "UPI" | "TON", address: string, coins: number) => Promise<boolean>;
   onSaveAddress?: (method: "UPI" | "TON", address: string) => void;
 }
@@ -18,16 +19,31 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
   onClose,
   user,
   config,
+  paymentMethods,
   onSubmitWithdrawal,
   onSaveAddress,
 }) => {
-  const [method, setMethod] = useState<"UPI" | "TON">("UPI");
+  const isUpiActive = paymentMethods ? paymentMethods.some((pm) => pm.type === "UPI" && pm.is_active) : true;
+  const isTonActive = paymentMethods ? paymentMethods.some((pm) => pm.type === "TON" && pm.is_active) : true;
+
+  const [method, setMethod] = useState<"UPI" | "TON">(isUpiActive ? "UPI" : "TON");
   const [address, setAddress] = useState("");
   const [coins, setCoins] = useState<number | string>(config.min_withdrawal_coins);
   const [saveAddressOption, setSaveAddressOption] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // Auto-switch method if current selected method is disabled by admin
+  useEffect(() => {
+    if (!isTonActive && method === "TON") {
+      setMethod("UPI");
+      setAddress(user.saved_upi_id || "");
+    } else if (!isUpiActive && method === "UPI") {
+      setMethod("TON");
+      setAddress(user.saved_ton_address || "");
+    }
+  }, [isUpiActive, isTonActive, method, user.saved_upi_id, user.saved_ton_address]);
 
   // Auto-fill from saved settings
   useEffect(() => {
@@ -144,31 +160,35 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
 
             {/* Payout Method Toggle */}
             <div className="flex gap-2 p-1.5 glass-card rounded-2xl border border-sky-200/60">
-              <button
-                type="button"
-                onClick={() => setMethod("UPI")}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                  method === "UPI"
-                    ? "btn-tactile-sky text-white shadow-sm"
-                    : "text-sky-800 hover:bg-white/60"
-                }`}
-              >
-                <QrCode className="w-4 h-4" />
-                <span>UPI (GPay/PhonePe)</span>
-              </button>
+              {isUpiActive && (
+                <button
+                  type="button"
+                  onClick={() => setMethod("UPI")}
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                    method === "UPI"
+                      ? "btn-tactile-sky text-white shadow-sm"
+                      : "text-sky-800 hover:bg-white/60"
+                  }`}
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>UPI (GPay/PhonePe)</span>
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={() => setMethod("TON")}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                  method === "TON"
-                    ? "btn-tactile-sky text-white shadow-sm"
-                    : "text-sky-800 hover:bg-white/60"
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>TON Wallet</span>
-              </button>
+              {isTonActive && (
+                <button
+                  type="button"
+                  onClick={() => setMethod("TON")}
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                    method === "TON"
+                      ? "btn-tactile-sky text-white shadow-sm"
+                      : "text-sky-800 hover:bg-white/60"
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>TON Wallet</span>
+                </button>
+              )}
             </div>
 
             {/* Address / UPI input */}

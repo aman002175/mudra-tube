@@ -113,4 +113,8 @@ export interface GlobalConfig {
   channel_tasks_enabled: boolean;
   offerwalls_enabled: boolean;
   maintenance_mode: boolean;
+  custom_service_enabled: boolean;
+  custom_service_title: string;
+  custom_service_telegram: string;
+  custom_total_users_count?: number;
 }
