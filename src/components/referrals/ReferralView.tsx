@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Users, Copy, Share2, Gift, TrendingUp, UserPlus, CheckCircle } from "lucide-react";
+import { Users, Copy, Share2, Gift, TrendingUp, UserPlus, CheckCircle, X, QrCode, Send } from "lucide-react";
 import { UserProfile, GlobalConfig } from "@/types";
 
 interface ReferralViewProps {
@@ -18,6 +18,7 @@ export const ReferralView: React.FC<ReferralViewProps> = ({
   botUsername,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [showSharePopup, setShowSharePopup] = useState(false);
 
   const isEnabled = config.referral_system_enabled ?? false;
   const rewardType = config.referral_reward_type || "withdrawal_percentage";
@@ -38,6 +39,10 @@ export const ReferralView: React.FC<ReferralViewProps> = ({
   };
 
   const handleShare = () => {
+    setShowSharePopup(true);
+  };
+
+  const shareToTelegram = () => {
     const text = `🚀 Join MudraTube and earn real cash by completing simple Telegram tasks!\n\n💰 Start earning now:\n${referralLink}`;
     if (typeof window !== "undefined" && window.Telegram?.WebApp?.openTelegramLink) {
       window.Telegram.WebApp.openTelegramLink(
@@ -109,10 +114,10 @@ export const ReferralView: React.FC<ReferralViewProps> = ({
             </button>
             <button
               onClick={handleShare}
-              className="flex-[2] py-2.5 rounded-xl bg-[#229ED9] hover:bg-[#1a8bc0] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md shadow-[#229ED9]/30"
+              className="flex-[2] py-2.5 rounded-xl bg-gradient-to-r from-[#229ED9] to-[#1a8bc0] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md shadow-[#229ED9]/30"
             >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>Share on Telegram</span>
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Share / QR Code</span>
             </button>
           </div>
         </div>
@@ -209,6 +214,67 @@ export const ReferralView: React.FC<ReferralViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Share / QR Code Glassmorphism Popup */}
+      {showSharePopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-sky-950/40 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-sm rounded-[2rem] glass-elevated border border-white p-6 shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-200">
+            {/* Close Button */}
+            <button
+              onClick={() => setShowSharePopup(false)}
+              className="absolute top-4 right-4 w-8 h-8 bg-sky-100/50 hover:bg-sky-200 text-sky-800 rounded-full flex items-center justify-center transition-colors active:scale-90"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="w-12 h-12 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mb-4">
+              <QrCode className="w-6 h-6" />
+            </div>
+            
+            <h3 className="text-lg font-black text-sky-950 mb-1">Share Referral Link</h3>
+            <p className="text-xs text-sky-700/80 mb-5 font-medium px-4">
+              Let your friends scan this QR Code or share the link directly to earn rewards.
+            </p>
+
+            {/* QR Code Display */}
+            <div className="bg-white p-3 rounded-2xl shadow-sm border border-sky-100 mb-5">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(referralLink)}`}
+                alt="Referral QR Code"
+                className="w-40 h-40 rounded-xl"
+              />
+            </div>
+
+            {/* Link & Copy */}
+            <div className="w-full space-y-3">
+              <div className="flex items-center gap-2 bg-white/80 border border-sky-200 rounded-xl p-1.5">
+                <div className="flex-1 overflow-hidden">
+                  <p className="text-[11px] font-mono font-bold text-sky-900 truncate pl-2">
+                    {referralLink}
+                  </p>
+                </div>
+                <button
+                  onClick={handleCopy}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
+                    copied ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700 hover:bg-sky-200"
+                  }`}
+                >
+                  {copied ? <CheckCircle className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+
+              <button
+                onClick={shareToTelegram}
+                className="w-full py-3 rounded-xl bg-[#229ED9] hover:bg-[#1a8bc0] text-white font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md shadow-[#229ED9]/30"
+              >
+                <Send className="w-4 h-4" />
+                Send via Telegram
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
