@@ -113,7 +113,7 @@ export function loadDatabase(): DatabaseState {
 /**
  * Save database state to disk atomically (.tmp -> rename) with .bak safeguard
  */
-export function saveDatabase(state: DatabaseState): void {
+export async function saveDatabase(state: DatabaseState): Promise<void> {
   global.__mudratube_db_state = state;
 
   const dataString = JSON.stringify(state, null, 2);
@@ -141,13 +141,13 @@ export function saveDatabase(state: DatabaseState): void {
 
   // If Firebase Firestore is configured, sync in background
   if (isFirebaseConfigured) {
-    syncToFirestore(state).catch((err) => {
+    await syncToFirestore(state).catch((err) => {
       console.warn("Firestore background sync warning:", err);
     });
   }
 }
 
-const lastSyncedStateHash = new Map<string, string>();
+export const lastSyncedStateHash = new Map<string, string>();
 
 /**
  * Sync entire state or changes to Firebase Firestore
@@ -341,40 +341,45 @@ export async function pullFromFirestore(): Promise<DatabaseState | null> {
     const configSnap = await getDoc(doc(db, "global_config", "platform_settings"));
     if (configSnap.exists()) {
       state.config = { ...state.config, ...configSnap.data() };
+      lastSyncedStateHash.set("global_config/platform_settings", JSON.stringify(state.config));
     }
 
     // Generic fetch helper
-    const fetchColl = async (collName: string) => {
+    const fetchColl = async (collName: string, idField: string) => {
       const snap = await getDocs(collection(db, collName));
-      return snap.docs.map(d => d.data());
+      return snap.docs.map(d => {
+        const data = d.data();
+        if (data[idField]) lastSyncedStateHash.set(collName + "/" + data[idField], JSON.stringify(data));
+        return data;
+      });
     };
 
     // 2. Users
-    const usersList = await fetchColl("users");
+    const usersList = await fetchColl("users", "user_id");
     usersList.forEach(u => { state.users[u.user_id] = u as any; });
 
     // 3. Tasks
-    const tasks = await fetchColl("tasks");
+    const tasks = await fetchColl("tasks", "id");
     if (tasks.length > 0) state.tasks = tasks as any;
 
     // 4. Packages
-    const pkgs = await fetchColl("packages");
+    const pkgs = await fetchColl("packages", "id");
     if (pkgs.length > 0) state.packages = pkgs as any;
 
     // 5. Payment Methods
-    const pms = await fetchColl("paymentMethods");
+    const pms = await fetchColl("paymentMethods", "id");
     if (pms.length > 0) state.paymentMethods = pms as any;
 
     // 6. Withdrawals
-    const wds = await fetchColl("withdrawals");
+    const wds = await fetchColl("withdrawals", "id");
     if (wds.length > 0) state.withdrawals = wds as any;
 
     // 7. Promotions
-    const promos = await fetchColl("promotions");
+    const promos = await fetchColl("promotions", "id");
     if (promos.length > 0) state.promotions = promos as any;
 
     // 8. Support Messages
-    const msgs = await fetchColl("supportMessages");
+    const msgs = await fetchColl("supportMessages", "id");
     if (msgs.length > 0) state.supportMessages = msgs as any;
 
     return state;

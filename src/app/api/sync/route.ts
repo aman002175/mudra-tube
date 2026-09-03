@@ -55,7 +55,7 @@ async function getLiveStore(): Promise<LiveStore> {
       dbState = loadDatabase();
     } else {
       // Keep local FS in sync with pulled Firebase state
-      saveDatabase(dbState);
+      await saveDatabase(dbState);
     }
     
     const userMap = new Map<string, UserProfile>();
@@ -78,12 +78,12 @@ async function getLiveStore(): Promise<LiveStore> {
   return global.__mudratube_live_store;
 }
 
-function persistStore(store: LiveStore): void {
+async function persistStore(store: LiveStore): Promise<void> {
   const usersRecord: Record<string, UserProfile> = {};
   for (const [uid, u] of store.users.entries()) {
     usersRecord[uid] = u;
   }
-  saveDatabase({
+  await saveDatabase({
     users: usersRecord,
     withdrawals: store.withdrawals,
     promotions: store.promotions,
@@ -403,7 +403,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        persistStore(store);
+        await persistStore(store);
         // Collect referrals of this user
         const myReferrals: any[] = [];
         store.users.forEach((u) => {
@@ -498,7 +498,7 @@ export async function POST(request: NextRequest) {
         user.completed_tasks.push(taskId);
         user.balance = Math.round((user.balance + rewardInr) * 100) / 100;
         user.total_earned = Math.round((user.total_earned + rewardInr) * 100) / 100;
-        persistStore(store);
+        await persistStore(store);
 
         return NextResponse.json({ success: true, user, rewardAwarded: rewardInr });
       }
@@ -624,7 +624,7 @@ export async function POST(request: NextRequest) {
         };
 
         store.withdrawals.unshift(newWithdrawal);
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, withdrawal: newWithdrawal, user });
       }
 
@@ -694,7 +694,7 @@ export async function POST(request: NextRequest) {
         };
 
         store.promotions.unshift(newPromo);
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, promotion: newPromo });
       }
 
@@ -751,7 +751,7 @@ export async function POST(request: NextRequest) {
         };
 
         store.supportMessages.push(newMsg);
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, message: newMsg });
       }
 
@@ -770,7 +770,7 @@ export async function POST(request: NextRequest) {
           }
         }
         if (updatedCount > 0) {
-          persistStore(store);
+          await persistStore(store);
         }
         return NextResponse.json({ success: true, updatedCount });
       }
@@ -817,7 +817,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, withdrawal });
       }
 
@@ -842,7 +842,7 @@ export async function POST(request: NextRequest) {
         if (roundedDelta > 0) {
           user.total_earned = Math.round((user.total_earned + roundedDelta) * 100) / 100;
         }
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, user });
       }
 
@@ -884,7 +884,7 @@ export async function POST(request: NextRequest) {
         promo.task_id = taskId;
 
         store.tasks.unshift(liveTask);
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, task: liveTask, promotion: promo });
       }
 
@@ -898,7 +898,7 @@ export async function POST(request: NextRequest) {
 
         promo.status = "rejected";
         promo.rejection_reason = sanitizeString(payload.reason || "Rejected by administrator", 256);
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, promotion: promo });
       }
 
@@ -966,7 +966,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, config: store.config });
       }
 
@@ -981,7 +981,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "User not found" }, { status: 404 });
         }
         user.is_banned = !user.is_banned;
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, user });
       }
 
@@ -989,7 +989,7 @@ export async function POST(request: NextRequest) {
       case "admin_update_payment_methods": {
         if (Array.isArray(payload.paymentMethods)) {
           store.paymentMethods = payload.paymentMethods;
-          persistStore(store);
+          await persistStore(store);
           return NextResponse.json({ success: true, paymentMethods: store.paymentMethods });
         }
         return NextResponse.json({ success: false, error: "Invalid paymentMethods array" }, { status: 400 });
@@ -999,7 +999,7 @@ export async function POST(request: NextRequest) {
       case "admin_update_tasks": {
         if (Array.isArray(payload.tasks)) {
           store.tasks = payload.tasks;
-          persistStore(store);
+          await persistStore(store);
           return NextResponse.json({ success: true, tasks: store.tasks });
         }
         return NextResponse.json({ success: false, error: "Invalid tasks array" }, { status: 400 });
@@ -1009,7 +1009,7 @@ export async function POST(request: NextRequest) {
       case "admin_update_packages": {
         if (Array.isArray(payload.packages)) {
           store.packages = payload.packages;
-          persistStore(store);
+          await persistStore(store);
           return NextResponse.json({ success: true, packages: store.packages });
         }
         return NextResponse.json({ success: false, error: "Invalid packages array" }, { status: 400 });
@@ -1043,7 +1043,7 @@ export async function POST(request: NextRequest) {
         if (payload.saved_ton_address !== undefined) {
           user.saved_ton_address = sanitizeString(payload.saved_ton_address, 100);
         }
-        persistStore(store);
+        await persistStore(store);
         return NextResponse.json({ success: true, user });
       }
 
