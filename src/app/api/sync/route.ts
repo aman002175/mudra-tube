@@ -26,6 +26,7 @@ import {
   logSecurityIncident,
 } from "@/lib/security";
 import { loadDatabase, saveDatabase, pullFromFirestore } from "@/lib/db";
+import { isFirebaseConfigured } from "@/lib/firebase";
 
 // ==========================================
 // PERSISTENT SERVER STORE
@@ -202,6 +203,8 @@ export async function GET(request: NextRequest) {
     });
   }
 
+
+
   return NextResponse.json({
     success: true,
     isAdmin: false,
@@ -215,6 +218,11 @@ export async function GET(request: NextRequest) {
     paymentMethods: store.paymentMethods.filter((pm) => pm.is_active),
     config: store.config,
     my_referrals: userReferrals,
+    debug_db: {
+      firebase_configured: isFirebaseConfigured,
+      actual_users_count: actualUsersCount,
+      users_in_store: store.users.size,
+    }
   });
 }
 
