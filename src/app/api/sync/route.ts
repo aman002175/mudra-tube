@@ -22,7 +22,6 @@ import {
   verifyTelegramInitData,
   verifyAdminSessionToken,
   logSecurityIncident,
-  getSecurityIncidents,
 } from "@/lib/security";
 
 // ==========================================
@@ -100,7 +99,6 @@ export async function GET(request: NextRequest) {
       supportMessages: store.supportMessages,
       tasks: store.tasks,
       config: store.config,
-      securityLogs: getSecurityIncidents(),
     });
   }
 
