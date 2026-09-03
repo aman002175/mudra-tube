@@ -19,6 +19,18 @@ import {
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
 
+export interface TransactionLog {
+  id: string;
+  user_id: string;
+  type: "task_reward" | "withdrawal_debit" | "withdrawal_refund" | "referral_bonus" | "admin_adjustment" | "promotion_payment";
+  amount_inr: number;
+  balance_before: number;
+  balance_after: number;
+  reference_id: string;
+  note: string;
+  created_at: string;
+}
+
 export interface DatabaseState {
   users: Record<string, UserProfile>;
   withdrawals: WithdrawalRequest[];
@@ -28,6 +40,7 @@ export interface DatabaseState {
   paymentMethods: AdminPaymentMethod[];
   packages: PromoPackage[];
   config: GlobalConfig;
+  transactions: TransactionLog[];
 }
 
 // Database file paths
@@ -46,6 +59,17 @@ try {
   RESOLVED_STORAGE_PATH = TMP_DB_PATH;
 }
 
+// Mutex to prevent concurrent save operations from racing
+let saveMutex = false;
+async function acquireSaveLock(): Promise<boolean> {
+  if (saveMutex) return false;
+  saveMutex = true;
+  return true;
+}
+function releaseSaveLock() {
+  saveMutex = false;
+}
+
 declare global {
   var __firebase_pull_error: any;
   var __mudratube_db_state: DatabaseState | undefined;
@@ -61,6 +85,7 @@ function getDefaultState(): DatabaseState {
     paymentMethods: JSON.parse(JSON.stringify(initialPaymentMethods)),
     packages: JSON.parse(JSON.stringify(initialPackages)),
     config: { ...initialConfig },
+    transactions: [],
   };
 }
 
@@ -95,6 +120,7 @@ export function loadDatabase(): DatabaseState {
             paymentMethods: parsed.paymentMethods?.length > 0 ? parsed.paymentMethods : JSON.parse(JSON.stringify(initialPaymentMethods)),
             packages: parsed.packages?.length > 0 ? parsed.packages : JSON.parse(JSON.stringify(initialPackages)),
             config: { ...initialConfig, ...(parsed.config || {}) },
+            transactions: parsed.transactions || [],
           };
           return global.__mudratube_db_state;
         }
@@ -114,36 +140,48 @@ export function loadDatabase(): DatabaseState {
  * Save database state to disk atomically (.tmp -> rename) with .bak safeguard
  */
 export async function saveDatabase(state: DatabaseState): Promise<void> {
-  global.__mudratube_db_state = state;
-
-  const dataString = JSON.stringify(state, null, 2);
-  const targetPath = RESOLVED_STORAGE_PATH;
-  const tmpPath = `${targetPath}.tmp`;
-  const bakPath = `${targetPath}.bak`;
-
-  try {
-    fs.writeFileSync(tmpPath, dataString, "utf-8");
-    if (fs.existsSync(targetPath)) {
-      try {
-        fs.copyFileSync(targetPath, bakPath);
-      } catch {}
-    }
-    fs.renameSync(tmpPath, targetPath);
-  } catch (err) {
-    try {
-      const tmpBackup = `${TMP_DB_PATH}.tmp`;
-      fs.writeFileSync(tmpBackup, dataString, "utf-8");
-      fs.renameSync(tmpBackup, TMP_DB_PATH);
-    } catch (e2) {
-      console.error("Critical: Failed to save database to disk:", e2);
-    }
+  // Prevent concurrent saves from racing and corrupting state
+  const acquired = await acquireSaveLock();
+  if (!acquired) {
+    // Another save is in progress — just update global state, disk save will happen from the other caller
+    global.__mudratube_db_state = state;
+    return;
   }
 
-  // If Firebase Firestore is configured, sync in background
-  if (isFirebaseConfigured) {
-    await syncToFirestore(state).catch((err) => {
-      console.warn("Firestore background sync warning:", err);
-    });
+  try {
+    global.__mudratube_db_state = state;
+
+    const dataString = JSON.stringify(state, null, 2);
+    const targetPath = RESOLVED_STORAGE_PATH;
+    const tmpPath = `${targetPath}.tmp`;
+    const bakPath = `${targetPath}.bak`;
+
+    try {
+      fs.writeFileSync(tmpPath, dataString, "utf-8");
+      if (fs.existsSync(targetPath)) {
+        try {
+          fs.copyFileSync(targetPath, bakPath);
+        } catch {}
+      }
+      fs.renameSync(tmpPath, targetPath);
+    } catch (err) {
+      try {
+        const tmpBackup = `${TMP_DB_PATH}.tmp`;
+        fs.writeFileSync(tmpBackup, dataString, "utf-8");
+        fs.renameSync(tmpBackup, TMP_DB_PATH);
+      } catch (e2) {
+        console.error("Critical: Failed to save database to disk:", e2);
+      }
+    }
+
+    // If Firebase Firestore is configured, sync in background (non-blocking for Vercel)
+    if (isFirebaseConfigured) {
+      syncToFirestore(state).catch((err) => {
+        console.warn("Firestore background sync warning:", err);
+      });
+    }
+  } finally {
+    releaseSaveLock();
   }
 }
 
@@ -332,6 +370,30 @@ export function addSupportMessage(msg: SupportChatMessage): SupportChatMessage {
   return msg;
 }
 
+export function addTransaction(tx: Omit<TransactionLog, "id" | "created_at">): TransactionLog {
+  const dbState = loadDatabase();
+  const fullTx: TransactionLog = {
+    ...tx,
+    id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    created_at: new Date().toISOString(),
+  };
+  dbState.transactions.unshift(fullTx);
+  // Keep only last 1000 transactions to prevent unbounded growth
+  if (dbState.transactions.length > 1000) {
+    dbState.transactions = dbState.transactions.slice(0, 1000);
+  }
+  saveDatabase(dbState);
+  return fullTx;
+}
+
+export function getTransactions(userId?: string): TransactionLog[] {
+  const dbState = loadDatabase();
+  if (userId) {
+    return dbState.transactions.filter((t) => t.user_id === userId);
+  }
+  return dbState.transactions;
+}
+
 export async function pullFromFirestore(): Promise<DatabaseState | null> {
   if (!isFirebaseConfigured) return null;
   try {
@@ -381,6 +443,10 @@ export async function pullFromFirestore(): Promise<DatabaseState | null> {
     // 8. Support Messages
     const msgs = await fetchColl("supportMessages", "id");
     if (msgs.length > 0) state.supportMessages = msgs as any;
+
+    // 9. Transactions (audit log)
+    const txs = await fetchColl("transactions", "id");
+    if (txs.length > 0) state.transactions = txs as any;
 
     return state;
   } catch (err) {

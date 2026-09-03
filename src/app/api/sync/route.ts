@@ -25,7 +25,7 @@ import {
   verifyAdminSessionToken,
   logSecurityIncident,
 } from "@/lib/security";
-import { loadDatabase, saveDatabase, pullFromFirestore } from "@/lib/db";
+import { loadDatabase, saveDatabase, pullFromFirestore, addTransaction } from "@/lib/db";
 import { isFirebaseConfigured } from "@/lib/firebase";
 
 // ==========================================
@@ -42,6 +42,7 @@ interface LiveStore {
   config: GlobalConfig;
   userTaskCooldown: Map<string, number>;
   userWithdrawCooldown: Map<string, number>;
+  lastConfigSavedAt: number; // Timestamp of last config save to prevent polling undo
 }
 
 declare global {
@@ -94,6 +95,7 @@ async function getLiveStore(): Promise<LiveStore> {
       config: { ...initialConfig, ...(dbState.config || {}) },
       userTaskCooldown: new Map<string, number>(),
       userWithdrawCooldown: new Map<string, number>(),
+      lastConfigSavedAt: 0,
     };
   }
   return global.__mudratube_live_store;
@@ -113,6 +115,7 @@ async function persistStore(store: LiveStore): Promise<void> {
     paymentMethods: store.paymentMethods,
     packages: store.packages,
     config: store.config,
+    transactions: (global.__mudratube_db_state?.transactions || []).slice(0, 1000),
   });
 }
 
@@ -151,6 +154,7 @@ export async function GET(request: NextRequest) {
   if (adminCheck.valid) {
     // Admin has full visibility of database state & security incidents
     const allUsers = Array.from(store.users.values()).filter(u => !u.user_id.startsWith("demo_") && !u.user_id.startsWith("browser_") && !/(^viewer_|^browser_|^@browser_)/i.test(u.username || ""));
+    const dbState = global.__mudratube_db_state;
     return NextResponse.json({
       success: true,
       isAdmin: true,
@@ -164,6 +168,8 @@ export async function GET(request: NextRequest) {
       packages: store.packages,
       paymentMethods: store.paymentMethods,
       config: store.config,
+      lastConfigSavedAt: store.lastConfigSavedAt,
+      transactions: dbState?.transactions?.slice(0, 200) || [],
     });
   }
 
@@ -239,6 +245,7 @@ export async function GET(request: NextRequest) {
     paymentMethods: store.paymentMethods.filter((pm) => pm.is_active),
     config: store.config,
     my_referrals: userReferrals,
+    lastConfigSavedAt: store.lastConfigSavedAt,
     debug_db: {
       firebase_configured: isFirebaseConfigured,
       actual_users_count: actualUsersCount,
@@ -390,9 +397,21 @@ export async function POST(request: NextRequest) {
             const referrer = store.users.get(referredBy);
             const bonus = Number(store.config.referral_reward_amount) || 0;
             if (referrer && bonus > 0) {
+              const refBalanceBefore = referrer.balance;
               referrer.referrals_count += 1;
               referrer.balance = Math.round((referrer.balance + bonus) * 100) / 100;
               referrer.referral_earnings = Math.round(((referrer.referral_earnings || 0) + bonus) * 100) / 100;
+
+              // Log referral bonus transaction
+              addTransaction({
+                user_id: referredBy,
+                type: "referral_bonus",
+                amount_inr: bonus,
+                balance_before: refBalanceBefore,
+                balance_after: referrer.balance,
+                reference_id: userId,
+                note: `Flat referral bonus for inviting ${cleanUsername || userId}`,
+              });
             }
           } else if (referredBy) {
             // Just increment count if percentage based or no reward
@@ -516,9 +535,22 @@ export async function POST(request: NextRequest) {
 
         // Atomically update user balance in ₹ INR
         rewardInr = Math.round(Number(rewardInr) * 100) / 100;
+        const balanceBefore = user.balance;
         user.completed_tasks.push(taskId);
         user.balance = Math.round((user.balance + rewardInr) * 100) / 100;
         user.total_earned = Math.round((user.total_earned + rewardInr) * 100) / 100;
+
+        // Log transaction for audit trail
+        addTransaction({
+          user_id: userId,
+          type: "task_reward",
+          amount_inr: rewardInr,
+          balance_before: balanceBefore,
+          balance_after: user.balance,
+          reference_id: taskId,
+          note: task ? `Channel join reward: ${task.username || task.title}` : `Task reward: ${taskId}`,
+        });
+
         await persistStore(store);
 
         return NextResponse.json({ success: true, user, rewardAwarded: rewardInr });
@@ -609,6 +641,7 @@ export async function POST(request: NextRequest) {
         const cleanAmountInr = Math.round(requestedAmount * 100) / 100;
 
         // Deduct balance atomically in ₹ INR
+        const balanceBeforeWd = user.balance;
         user.balance = Math.round((user.balance - cleanAmountInr) * 100) / 100;
 
         let finalAmountInr = cleanAmountInr;
@@ -645,6 +678,34 @@ export async function POST(request: NextRequest) {
         };
 
         store.withdrawals.unshift(newWithdrawal);
+
+        // Log withdrawal transaction
+        addTransaction({
+          user_id: userId,
+          type: "withdrawal_debit",
+          amount_inr: -cleanAmountInr,
+          balance_before: balanceBeforeWd,
+          balance_after: user.balance,
+          reference_id: newWithdrawal.id,
+          note: `Withdrawal via ${method} to ${cleanAddress}`,
+        });
+
+        // Log referral bonus if applicable
+        if (referralCutAmount > 0 && user.referred_by) {
+          const referrer = store.users.get(user.referred_by);
+          if (referrer) {
+            addTransaction({
+              user_id: user.referred_by,
+              type: "referral_bonus",
+              amount_inr: referralCutAmount,
+              balance_before: Math.round((referrer.balance - referralCutAmount) * 100) / 100,
+              balance_after: referrer.balance,
+              reference_id: newWithdrawal.id,
+              note: `Referral ${store.config.referral_reward_amount}% cut from ${user.username || userId}'s withdrawal`,
+            });
+          }
+        }
+
         await persistStore(store);
         return NextResponse.json({ success: true, withdrawal: newWithdrawal, user });
       }
@@ -996,7 +1057,9 @@ export async function POST(request: NextRequest) {
         }
 
         await persistStore(store);
-        return NextResponse.json({ success: true, config: store.config });
+        // Mark config save time so admin panel can skip polling briefly
+        store.lastConfigSavedAt = Date.now();
+        return NextResponse.json({ success: true, config: store.config, lastConfigSavedAt: store.lastConfigSavedAt });
       }
 
       // 10. Admin Toggles User Ban (Block / Unblock Malicious Actors)

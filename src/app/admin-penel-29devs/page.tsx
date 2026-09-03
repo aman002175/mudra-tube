@@ -33,6 +33,7 @@ import {
   History,
   Eye,
 } from "lucide-react";
+import { AdminSettingsPanel } from "@/components/admin/AdminSettingsPanel";
 import {
   ChannelTask,
   GlobalConfig,
@@ -63,7 +64,7 @@ export default function AdminPortalPage() {
 
   // Navigation Sub-tab
   const [currentSection, setCurrentSection] = useState<
-    "overview" | "users" | "withdrawals" | "promotions" | "approvals" | "packages" | "payments" | "support" | "settings"
+    "overview" | "users" | "withdrawals" | "promotions" | "approvals" | "packages" | "payments" | "support" | "settings" | "transactions"
   >("overview");
 
   // State Stores
@@ -116,6 +117,9 @@ export default function AdminPortalPage() {
   const [adminReplyText, setAdminReplyText] = useState("");
   const [inspectedUser, setInspectedUser] = useState<UserProfile | null>(null);
 
+  // Transaction audit log state
+  const [transactions, setTransactions] = useState<any[]>([]);
+
   // Dedicated local input state for Settings tab (prevents polling resets & enables free backspacing)
   const [settingsInputs, setSettingsInputs] = useState({
     min_withdrawal_inr: String(initialConfig.min_withdrawal_inr ?? initialConfig.min_withdrawal_coins ?? 10),
@@ -138,6 +142,7 @@ export default function AdminPortalPage() {
     referral_reward_amount: String(initialConfig.referral_reward_amount ?? 2),
   });
   const [isSettingsDirty, setIsSettingsDirty] = useState(false);
+  const [lastConfigSavedAt, setLastConfigSavedAt] = useState<number>(0);
 
   // Check for saved session token
   useEffect(() => {
@@ -219,9 +224,13 @@ export default function AdminPortalPage() {
             if (data.packages) setPackages(data.packages);
             if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
             if (data.supportMessages) setSupportMessages(data.supportMessages);
+            if (data.transactions) setTransactions(data.transactions);
             if (data.config) {
               setConfig(data.config);
-              if (currentSection !== "settings" && !isSettingsDirty) {
+              if (data.lastConfigSavedAt) setLastConfigSavedAt(data.lastConfigSavedAt);
+              // Don't overwrite local settings inputs if we just saved config (within 5 seconds)
+              const justSaved = Date.now() - lastConfigSavedAt < 5000;
+              if (currentSection !== "settings" && !isSettingsDirty && !justSaved) {
                 setSettingsInputs({
                   min_withdrawal_inr: String(data.config.min_withdrawal_inr ?? data.config.min_withdrawal_coins ?? 10),
                   ton_rate_inr: String(data.config.ton_rate_inr ?? 500),
@@ -252,7 +261,7 @@ export default function AdminPortalPage() {
     fetchLiveSync();
     const interval = setInterval(fetchLiveSync, 3000);
     return () => clearInterval(interval);
-  }, [isAuthenticated, adminToken, currentSection, isSettingsDirty]);
+  }, [isAuthenticated, adminToken, currentSection, isSettingsDirty, lastConfigSavedAt]);
 
   const handleManualAdminSync = async () => {
     setIsAdminSyncing(true);
@@ -271,6 +280,7 @@ export default function AdminPortalPage() {
         if (data.packages) setPackages(data.packages);
         if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
         if (data.supportMessages) setSupportMessages(data.supportMessages);
+        if (data.transactions) setTransactions(data.transactions);
         if (data.config) setConfig(data.config);
         setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
       }
@@ -775,6 +785,8 @@ export default function AdminPortalPage() {
       if (d.success && d.config) {
         setConfig(d.config);
         setIsSettingsDirty(false);
+        const savedAt = d.lastConfigSavedAt || Date.now();
+        setLastConfigSavedAt(savedAt);
         setSettingsInputs({
           min_withdrawal_inr: String(d.config.min_withdrawal_inr ?? d.config.min_withdrawal_coins ?? 10),
           ton_rate_inr: String(d.config.ton_rate_inr ?? 500),
@@ -939,6 +951,7 @@ export default function AdminPortalPage() {
             { id: "users", label: "Users & Balances", icon: Users },
             { id: "promotions", label: "Channel Tasks", icon: Megaphone },
             { id: "packages", label: "Ad Packages", icon: Layers },
+            { id: "transactions", label: "Audit Log", icon: History },
             { id: "settings", label: "Economics & Settings", icon: Settings },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -2373,452 +2386,62 @@ export default function AdminPortalPage() {
           </div>
         )}
 
-        {/* 6. SETTINGS & ECONOMICS SECTION */}
-        {currentSection === "settings" && (
-          <div className="glass-card rounded-2xl p-5 border border-white space-y-4 max-w-xl">
-            <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider">
-              Global Platform Controls
+        {/* 6. TRANSACTION AUDIT LOG */}
+        {currentSection === "transactions" && (
+          <div className="glass-card rounded-2xl p-5 border border-white space-y-4">
+            <h3 className="text-sm font-extrabold text-sky-950 uppercase tracking-wider flex items-center gap-2">
+              <History className="w-4 h-4 text-sky-600" />
+              Transaction Audit Log ({transactions.length})
             </h3>
-
-            <div className="space-y-3 text-xs">
-              {/* DATABASE & REAL-TIME SYNC STATUS CARD */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-emerald-950 flex items-center gap-1.5 text-xs">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                    <span>Database Engine & Cloud Sync</span>
-                  </span>
-                  <span className="text-[11px] font-mono font-bold bg-white text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-300">
-                    🟢 Active & Connected
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-emerald-900">
-                  <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
-                    <span className="block text-slate-500 text-[10px] font-bold">Total Registered Users</span>
-                    <span className="font-mono font-black text-sm text-emerald-900">{usersList.length}</span>
-                  </div>
-                  <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
-                    <span className="block text-slate-500 text-[10px] font-bold">Total Withdrawal Tickets</span>
-                    <span className="font-mono font-black text-sm text-emerald-900">{withdrawals.length}</span>
-                  </div>
-                </div>
-                <p className="text-[10px] text-emerald-700 leading-relaxed">
-                  Persistent disk database is active. All user registrations, balance updates, and settings changes are saved permanently.
-                </p>
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  Minimum Withdrawal Threshold (₹ INR)
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={settingsInputs.min_withdrawal_inr}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, min_withdrawal_inr: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
-                  placeholder="10"
-                />
-                <span className="text-[10px] text-sky-600 block mt-0.5">
-                  e.g. ₹10, ₹50, ₹100. Users must have at least this much in their cash balance to request a payout.
-                </span>
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  TON Crypto Exchange Rate (₹ INR per 1 TON)
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={settingsInputs.ton_rate_inr}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, ton_rate_inr: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
-                  placeholder="500"
-                />
-                <span className="text-[10px] text-sky-600 block mt-0.5">
-                  e.g. ₹500 (1 TON = ₹500 INR). Used when user chooses TON Wallet payout.
-                </span>
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  Default Task Reward (₹ INR per verified member join)
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={settingsInputs.default_task_reward_inr}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, default_task_reward_inr: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
-                  placeholder="1.50"
-                />
-                <span className="text-[10px] text-sky-600 block mt-0.5">
-                  Exact cash reward given to a user when joining an admin sponsor channel (e.g. ₹1.50, ₹2.00).
-                </span>
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  Minimum Rate Per Member Floor (₹ INR per custom member)
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={settingsInputs.min_rate_per_member_inr}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, min_rate_per_member_inr: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
-                  placeholder="2.0"
-                />
-                <span className="text-[10px] text-sky-600 block mt-0.5">
-                  Sponsors asking for custom member counts cannot pay less than this rate per user.
-                </span>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="font-bold text-sky-900">
-                    Default Admin Revenue Cut (% from Sponsor Packages)
-                  </label>
-                  <span className="font-black text-sky-950 bg-sky-100 px-2 py-0.5 rounded-md">
-                    {settingsInputs.admin_profit_cut_percent}% Admin / {100 - Number(settingsInputs.admin_profit_cut_percent)}% Users Pool
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={10}
-                  max={90}
-                  step={5}
-                  value={settingsInputs.admin_profit_cut_percent}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    const val = parseInt(e.target.value) || 60;
-                    setSettingsInputs({ ...settingsInputs, admin_profit_cut_percent: val });
-                  }}
-                  className="w-full accent-sky-600 h-2 bg-sky-200 rounded-lg cursor-pointer"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  Official Admin Receiving UPI ID (Shown to Sponsors)
-                </label>
-                <input
-                  type="text"
-                  value={settingsInputs.admin_upi_id}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, admin_upi_id: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-mono font-bold text-sky-950"
-                  placeholder="e.g. yourname@paytm"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  Admin Telegram Handle for Screenshot DMs
-                </label>
-                <input
-                  type="text"
-                  value={settingsInputs.admin_telegram_handle}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, admin_telegram_handle: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-mono font-bold text-sky-950"
-                  placeholder="e.g. @MudraAdmin"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  Official Verification Bot Username
-                </label>
-                <input
-                  type="text"
-                  value={settingsInputs.bot_username}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, bot_username: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-mono font-bold text-sky-950"
-                  placeholder="e.g. @MudraTube_bot"
-                />
-              </div>
-
-              {/* TOTAL PLATFORM USERS DISPLAY CONTROLLER */}
-              <div className="p-3.5 rounded-2xl bg-sky-50/90 border border-sky-200 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="font-bold text-sky-950 flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-sky-600" />
-                    <span>Total Platform Users Header Display</span>
-                  </label>
-                  <span className="text-[11px] font-mono font-bold bg-white px-2 py-0.5 rounded-md border border-sky-200 text-sky-800">
-                    Live Database Users: {usersList.length}
-                  </span>
-                </div>
-                <p className="text-[11px] text-sky-700">
-                  Visible to all Telegram channel owners and sponsors in the top app header. Enter custom count or 0 for live count.
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={settingsInputs.custom_total_users_count}
-                    onChange={(e) => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({ ...settingsInputs, custom_total_users_count: e.target.value });
-                    }}
-                    className="flex-1 px-3 py-2 rounded-xl bg-white border border-sky-200 font-bold text-sky-950"
-                    placeholder="e.g. 1500 (0 = show live count)"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({ ...settingsInputs, custom_total_users_count: String(usersList.length) });
-                    }}
-                    className="px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-800 font-bold hover:bg-sky-100 active:scale-95 text-xs"
-                  >
-                    Sync Live Count
-                  </button>
-                </div>
-              </div>
-
-              {/* CUSTOM SOLUTION & TELEGRAM BOT/WEB/APP PROMO BANNER */}
-              <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-purple-50 to-indigo-50 border border-purple-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="font-bold text-purple-950 flex items-center gap-1.5">
-                    <span>🚀 Custom Solution Banner (Profile / Settings)</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settingsInputs.custom_service_enabled}
-                      onChange={(e) => {
-                        setIsSettingsDirty(true);
-                        setSettingsInputs({ ...settingsInputs, custom_service_enabled: e.target.checked });
-                      }}
-                      className="rounded text-purple-600"
-                    />
-                    <span className="font-bold text-purple-900 text-xs">Active</span>
-                  </label>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-purple-900 mb-1 text-[11px]">
-                    Banner Headline / Text
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={settingsInputs.custom_service_title}
-                    onChange={(e) => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({ ...settingsInputs, custom_service_title: e.target.value });
-                    }}
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-purple-200 font-bold text-purple-950 text-xs focus:ring-2 focus:ring-purple-400"
-                    placeholder="need custom solution telegram bot,web,App?? contect here..🚀💰"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-purple-900 mb-1 text-[11px]">
-                    Developer Telegram Username for Direct DMs
-                  </label>
-                  <input
-                    type="text"
-                    value={settingsInputs.custom_service_telegram}
-                    onChange={(e) => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({ ...settingsInputs, custom_service_telegram: e.target.value });
-                    }}
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-purple-200 font-mono font-bold text-purple-950 text-xs"
-                    placeholder="e.g. @amxnbixnoe"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({
-                        ...settingsInputs,
-                        custom_service_enabled: false,
-                      });
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-rose-100 text-rose-800 font-bold text-[11px] hover:bg-rose-200 active:scale-95"
-                  >
-                    Disable / Delete
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({
-                        ...settingsInputs,
-                        custom_service_enabled: true,
-                        custom_service_title: "need custom solution telegram bot,web,App?? contect here..🚀💰",
-                        custom_service_telegram: "@amxnbixnoe",
-                      });
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-purple-100 text-purple-900 font-bold text-[11px] hover:bg-purple-200 active:scale-95"
-                  >
-                    Reset to Default (@amxnbixnoe)
-                  </button>
-                </div>
-              </div>
-
-              {/* HELP DESK URL */}
-              <div className="p-3.5 rounded-2xl bg-white/70 border border-sky-100 space-y-3">
-                <div>
-                  <label className="block font-bold text-sky-950 mb-1">
-                    Telegram Help Desk Group URL
-                  </label>
-                  <p className="text-[10px] text-sky-700/80 mb-2">
-                    Used for community support and proofs via the support modal.
-                  </p>
-                  <input
-                    type="text"
-                    value={settingsInputs.help_desk_url}
-                    onChange={(e) => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({ ...settingsInputs, help_desk_url: e.target.value });
-                    }}
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 font-mono font-bold text-sky-950 text-xs"
-                    placeholder="https://t.me/mudratubehelpdesk"
-                  />
-                </div>
-              </div>
-
-              {/* REFERRAL SYSTEM SETTINGS */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="font-bold text-emerald-950 flex items-center gap-1.5">
-                    <span>👥 Referral Program Settings</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settingsInputs.referral_system_enabled}
-                      onChange={(e) => {
-                        setIsSettingsDirty(true);
-                        setSettingsInputs({ ...settingsInputs, referral_system_enabled: e.target.checked });
-                      }}
-                      className="rounded text-emerald-600"
-                    />
-                    <span className="font-bold text-emerald-900 text-xs">Active</span>
-                  </label>
-                </div>
-
-                {settingsInputs.referral_system_enabled && (
-                  <div className="space-y-3 pt-2">
-                    <div>
-                      <label className="block font-bold text-emerald-900 mb-1 text-[11px]">
-                        Reward Type
-                      </label>
-                      <select
-                        value={settingsInputs.referral_reward_type}
-                        onChange={(e) => {
-                          setIsSettingsDirty(true);
-                          setSettingsInputs({ ...settingsInputs, referral_reward_type: e.target.value as "flat_bonus" | "withdrawal_percentage" });
-                        }}
-                        className="w-full px-3 py-2 rounded-xl bg-white border border-emerald-200 font-bold text-emerald-950 text-xs"
-                      >
-                        <option value="withdrawal_percentage">Percentage Cut on Withdrawal (%)</option>
-                        <option value="flat_bonus">Flat Bonus on Join (₹)</option>
-                      </select>
+            <p className="text-[11px] text-sky-700">
+              Immutable record of all balance modifications — task rewards, withdrawals, referral bonuses, and admin adjustments.
+            </p>
+            {transactions.length === 0 ? (
+              <div className="p-6 text-center text-sky-600 text-xs font-bold">No transactions yet</div>
+            ) : (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {transactions.slice(0, 100).map((tx: any) => (
+                  <div key={tx.id} className="p-3 rounded-xl bg-white/60 border border-sky-100 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-[10px] ${
+                        tx.type === "task_reward" ? "bg-emerald-100 text-emerald-700" :
+                        tx.type === "withdrawal_debit" ? "bg-rose-100 text-rose-700" :
+                        tx.type === "referral_bonus" ? "bg-purple-100 text-purple-700" :
+                        "bg-sky-100 text-sky-700"
+                      }`}>
+                        {tx.type === "task_reward" ? "T" :
+                         tx.type === "withdrawal_debit" ? "W" :
+                         tx.type === "referral_bonus" ? "R" : "A"}
+                      </div>
+                      <div>
+                        <div className="font-bold text-sky-950">{tx.note}</div>
+                        <div className="text-[10px] text-sky-600">
+                          User #{tx.user_id} • {new Date(tx.created_at).toLocaleString()}
+                        </div>
+                      </div>
                     </div>
-
-                    <div>
-                      <label className="block font-bold text-emerald-900 mb-1 text-[11px]">
-                        Reward Amount ({settingsInputs.referral_reward_type === 'withdrawal_percentage' ? '%' : '₹'})
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={settingsInputs.referral_reward_amount}
-                        onChange={(e) => {
-                          setIsSettingsDirty(true);
-                          setSettingsInputs({ ...settingsInputs, referral_reward_amount: e.target.value });
-                        }}
-                        className="w-full px-3 py-2 rounded-xl bg-white border border-emerald-200 font-bold text-emerald-950 text-xs"
-                        placeholder="e.g. 2 for 2%"
-                      />
-                      <p className="text-[10px] text-emerald-700/80 mt-1">
-                        {settingsInputs.referral_reward_type === 'withdrawal_percentage' 
-                          ? "When referred user withdraws, this % is cut from their withdrawal and added to referrer's balance."
-                          : "Referrer gets this flat ₹ amount immediately when a new user joins via their link."}
-                      </p>
+                    <div className={`font-mono font-black ${tx.amount_inr >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                      {tx.amount_inr >= 0 ? "+" : ""}₹{Math.abs(tx.amount_inr).toFixed(2)}
                     </div>
                   </div>
-                )}
+                ))}
               </div>
-
-              <div className="pt-2 space-y-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settingsInputs.channel_tasks_enabled}
-                    onChange={(e) => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({ ...settingsInputs, channel_tasks_enabled: e.target.checked });
-                    }}
-                    className="rounded text-sky-600"
-                  />
-                  <span className="font-bold text-sky-900">Enable Channel Join Tasks</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settingsInputs.offerwalls_enabled}
-                    onChange={(e) => {
-                      setIsSettingsDirty(true);
-                      setSettingsInputs({ ...settingsInputs, offerwalls_enabled: e.target.checked });
-                    }}
-                    className="rounded text-sky-600"
-                  />
-                  <span className="font-bold text-sky-900">Enable CPA Offerwalls</span>
-                </label>
-              </div>
-
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
-                ✓ Changes persist to database and take effect immediately across all connected Telegram WebApp clients.
-              </div>
-
-              <div className="pt-3 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => handleSaveConfig()}
-                  disabled={configSaving}
-                  className="btn-tactile-sky px-5 py-2.5 rounded-xl text-white font-extrabold text-xs flex items-center gap-2 active:scale-95 shadow-md"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{configSaving ? "Saving..." : "Save All Platform Settings"}</span>
-                </button>
-
-                {configSavedToast && (
-                  <span className="text-emerald-700 font-bold text-xs bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-300 animate-in fade-in">
-                    ✓ Settings saved to database!
-                  </span>
-                )}
-              </div>
-            </div>
+            )}
           </div>
+        )}
+
+        {/* 7. SETTINGS & ECONOMICS SECTION */}
+        {currentSection === "settings" && (
+          <AdminSettingsPanel
+            settingsInputs={settingsInputs}
+            setSettingsInputs={setSettingsInputs}
+            setIsSettingsDirty={setIsSettingsDirty}
+            usersList={usersList}
+            withdrawals={withdrawals}
+            handleSaveConfig={handleSaveConfig}
+            configSaving={configSaving}
+            configSavedToast={configSavedToast}
+          />
         )}
       </div>
 
