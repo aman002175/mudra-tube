@@ -1,11 +1,63 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getClientIp,
+  rateLimiter,
+  RATE_LIMIT_RULES,
+  validateUserId,
+  sanitizeString,
+  detectSuspiciousPatterns,
+  logSecurityIncident,
+} from "@/lib/security";
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { userId, channelId, taskId } = body;
+  const ip = getClientIp(req);
 
-    if (!userId || !channelId) {
+  // 1. IP Rate Limiting
+  const rateCheck = rateLimiter.check(
+    `verify_chan_${ip}`,
+    RATE_LIMIT_RULES.CHANNEL_VERIFY.limit,
+    RATE_LIMIT_RULES.CHANNEL_VERIFY.windowMs
+  );
+
+  if (!rateCheck.allowed) {
+    logSecurityIncident({
+      type: "RATE_LIMIT",
+      ip,
+      details: "Rate limit exceeded on verify-channel endpoint",
+    });
+    return NextResponse.json(
+      {
+        error: `Too many verification requests. Please wait ${rateCheck.retryAfterSeconds} seconds before trying again.`,
+        retryAfter: rateCheck.retryAfterSeconds,
+      },
+      { status: 429 }
+    );
+  }
+
+  try {
+    const rawBody = await req.json();
+
+    // 2. Suspicious payload check
+    const suspicious = detectSuspiciousPatterns(rawBody);
+    if (suspicious.isSuspicious) {
+      logSecurityIncident({
+        type: "SUSPICIOUS_PAYLOAD",
+        ip,
+        details: `Suspicious payload in verify-channel: ${suspicious.reason}`,
+      });
+      return NextResponse.json({ error: "Invalid or suspicious request" }, { status: 400 });
+    }
+
+    const { userId, channelId, taskId } = rawBody;
+
+    // 3. Input Validation
+    const userVal = validateUserId(userId);
+    if (!userVal.valid) {
+      return NextResponse.json({ error: "Invalid userId provided" }, { status: 400 });
+    }
+
+    const cleanChannel = sanitizeString(channelId, 128);
+    if (!cleanChannel) {
       return NextResponse.json(
         { error: "Missing required parameters: userId or channelId" },
         { status: 400 }
@@ -15,7 +67,7 @@ export async function POST(req: NextRequest) {
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
     // If bot token is not yet configured, gracefully provide demo simulation
-    if (!botToken || botToken.includes("YourTelegramBotTokenHere")) {
+    if (!botToken || botToken.includes("YourTelegramBotTokenHere") || botToken.includes("YOUR_BOT_TOKEN")) {
       return NextResponse.json({
         success: true,
         isMember: true,
@@ -26,8 +78,8 @@ export async function POST(req: NextRequest) {
 
     // Call official Telegram Bot API: getChatMember
     const tgUrl = `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${encodeURIComponent(
-      channelId
-    )}&user_id=${encodeURIComponent(userId)}`;
+      cleanChannel
+    )}&user_id=${encodeURIComponent(userVal.value)}`;
 
     const response = await fetch(tgUrl, { cache: "no-store" });
     const data = await response.json();

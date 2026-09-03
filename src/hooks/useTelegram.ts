@@ -32,6 +32,7 @@ declare global {
 
 export function useTelegram() {
   const [user, setUser] = useState<TelegramUser | null>(null);
+  const [initData, setInitData] = useState<string>("");
   const [isTelegram, setIsTelegram] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
@@ -49,6 +50,10 @@ export function useTelegram() {
         tg.setBackgroundColor("#F0F9FF");
       } catch (e) {
         // ignore in older clients
+      }
+
+      if (tg.initData) {
+        setInitData(tg.initData);
       }
 
       if (tg.initDataUnsafe?.user) {
@@ -97,6 +102,7 @@ export function useTelegram() {
 
   return {
     user,
+    initData,
     isTelegram,
     isReady,
     triggerHaptic,

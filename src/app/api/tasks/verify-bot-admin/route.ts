@@ -1,23 +1,80 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getClientIp,
+  rateLimiter,
+  RATE_LIMIT_RULES,
+  sanitizeString,
+  detectSuspiciousPatterns,
+  logSecurityIncident,
+} from "@/lib/security";
 
 export async function POST(req: NextRequest) {
-  try {
-    const { channel } = await req.json();
+  const ip = getClientIp(req);
 
-    if (!channel) {
+  // 1. IP Rate Limiting
+  const rateCheck = rateLimiter.check(
+    `verify_bot_${ip}`,
+    RATE_LIMIT_RULES.BOT_ADMIN_VERIFY.limit,
+    RATE_LIMIT_RULES.BOT_ADMIN_VERIFY.windowMs
+  );
+
+  if (!rateCheck.allowed) {
+    logSecurityIncident({
+      type: "RATE_LIMIT",
+      ip,
+      details: "Rate limit exceeded on verify-bot-admin endpoint",
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Too many verification attempts. Please wait ${rateCheck.retryAfterSeconds} seconds before trying again.`,
+        retryAfter: rateCheck.retryAfterSeconds,
+      },
+      { status: 429 }
+    );
+  }
+
+  try {
+    const rawBody = await req.json();
+
+    // 2. Suspicious payload check
+    const suspicious = detectSuspiciousPatterns(rawBody);
+    if (suspicious.isSuspicious) {
+      logSecurityIncident({
+        type: "SUSPICIOUS_PAYLOAD",
+        ip,
+        details: `Suspicious payload in verify-bot-admin: ${suspicious.reason}`,
+      });
+      return NextResponse.json(
+        { success: false, error: "Invalid or suspicious request" },
+        { status: 400 }
+      );
+    }
+
+    const { channel } = rawBody;
+
+    if (!channel || typeof channel !== "string") {
       return NextResponse.json(
         { success: false, error: "Channel username or link is required" },
         { status: 400 }
       );
     }
 
-    const cleanChannel = channel.trim().replace("https://t.me/", "@");
-    const formattedChannel = cleanChannel.startsWith("@") ? cleanChannel : `@${cleanChannel}`;
+    const cleanInput = sanitizeString(channel, 128);
+    const cleanChannel = cleanInput.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").replace("@", "").trim();
 
+    if (!/^[a-zA-Z0-9_]{4,32}$/.test(cleanChannel)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid channel username format" },
+        { status: 400 }
+      );
+    }
+
+    const formattedChannel = `@${cleanChannel}`;
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
     // If bot token is not configured yet, provide simulated success so test flows don't block
-    if (!botToken || botToken.includes("YourTelegramBotTokenHere")) {
+    if (!botToken || botToken.includes("YourTelegramBotTokenHere") || botToken.includes("YOUR_BOT_TOKEN")) {
       return NextResponse.json({
         success: true,
         isAdmin: true,

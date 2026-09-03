@@ -33,7 +33,7 @@ import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
 
 export default function MudraTubeApp() {
-  const { user: tgUser, isTelegram, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
+  const { user: tgUser, initData, isTelegram, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
 
   // Application State
   const [currentTab, setCurrentTab] = useState<TabType>("tasks");
@@ -46,7 +46,16 @@ export default function MudraTubeApp() {
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
 
-  // Sync Telegram User & Firestore Database
+  // Secure API fetch helper with Telegram InitData signature
+  const apiFetch = (url: string, options: RequestInit = {}) => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(initData ? { "x-telegram-init-data": initData } : {}),
+      ...((options.headers as Record<string, string>) || {}),
+    };
+    return fetch(url, { ...options, headers });
+  };
+
   // Sync Telegram User or Persistent Browser ID with Server & Firestore
   useEffect(() => {
     let actualId = "";
@@ -70,9 +79,8 @@ export default function MudraTubeApp() {
     }
 
     // Connect to Server /api/sync
-    fetch("/api/sync", {
+    apiFetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "connect_user",
         payload: {
@@ -92,7 +100,7 @@ export default function MudraTubeApp() {
 
     // Fetch initial state for tasks, withdrawals, support messages
     const fetchUserData = () => {
-      fetch(`/api/sync?user_id=${actualId}`)
+      apiFetch(`/api/sync?user_id=${actualId}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.success) {
@@ -161,69 +169,70 @@ export default function MudraTubeApp() {
   const handleVerifyTask = async (taskId: string, channelUsername: string): Promise<boolean> => {
     triggerHaptic("medium");
 
-    // Check anti-cheat double-claim
+    // Check anti-cheat double-claim locally first
     if (user.completed_tasks.includes(taskId)) {
       triggerNotificationHaptic("error");
       return false;
     }
 
     try {
-      // Backend Bot API call proxy
-      const res = await fetch("/api/tasks/verify-channel", {
+      // 1. Verify membership with Telegram Bot API
+      const res = await apiFetch("/api/tasks/verify-channel", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.user_id,
           channelId: channelUsername,
           taskId,
         }),
-      }).catch(() => null);
+      });
+      const verifyData = await res.json();
 
-      const task = tasks.find((t) => t.id === taskId);
-      const reward = task ? task.reward_coins : config.default_task_reward;
-      const newCompleted = [...user.completed_tasks, taskId];
-      const newBalance = user.balance + reward;
-      const newEarned = user.total_earned + reward;
-
-      // Update local state atomically
-      setUser((prev) => ({
-        ...prev,
-        balance: newBalance,
-        total_earned: newEarned,
-        completed_tasks: newCompleted,
-      }));
-
-      // If Firebase configured, persist to Firestore
-      if (isFirebaseConfigured) {
-        const userDocRef = doc(db, "users", user.user_id);
-        setDoc(
-          userDocRef,
-          {
-            balance: newBalance,
-            total_earned: newEarned,
-            completed_tasks: newCompleted,
-          },
-          { merge: true }
-        );
+      if (!verifyData.success || !verifyData.isMember) {
+        alert(verifyData.message || verifyData.error || "Please join the channel first to earn coins!");
+        triggerNotificationHaptic("error");
+        return false;
       }
 
-      // Update task joins count & notify /api/sync
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, joined_count: t.joined_count + 1 } : t))
-      );
-
-      fetch("/api/sync", {
+      // 2. Authoritatively claim reward on server with anti-cheat checks
+      const syncRes = await apiFetch("/api/sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "complete_task",
           payload: {
             user_id: user.user_id,
             task_id: taskId,
-            reward_coins: tasks.find((t) => t.id === taskId)?.reward_coins || 50,
           },
         }),
-      }).catch(() => {});
+      });
+      const syncData = await syncRes.json();
+
+      if (!syncData.success) {
+        alert(syncData.error || "Failed to claim task reward.");
+        triggerNotificationHaptic("error");
+        return false;
+      }
+
+      // Update state with server's authoritative user balance & completed tasks
+      if (syncData.user) {
+        setUser(syncData.user);
+      }
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, joined_count: (t.joined_count || 0) + 1 } : t))
+      );
+
+      // If Firebase configured, persist to Firestore
+      if (isFirebaseConfigured && syncData.user) {
+        const userDocRef = doc(db, "users", user.user_id);
+        setDoc(
+          userDocRef,
+          {
+            balance: syncData.user.balance,
+            total_earned: syncData.user.total_earned,
+            completed_tasks: syncData.user.completed_tasks,
+          },
+          { merge: true }
+        );
+      }
 
       triggerNotificationHaptic("success");
       return true;
@@ -246,64 +255,45 @@ export default function MudraTubeApp() {
       return false;
     }
 
-    const inrValue = Number((coins / config.coins_per_inr).toFixed(2));
-    const newRequest: WithdrawalRequest = {
-      id: `wd_${Date.now()}`,
-      user_id: user.user_id,
-      username: user.username,
-      method,
-      payout_address: payoutAddress,
-      coins,
-      amount_inr: inrValue,
-      status: "pending",
-      refunded: false,
-      requested_at: new Date().toISOString(),
-    };
+    try {
+      // Authoritatively submit withdrawal to server with anti-tampering verification
+      const res = await apiFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "request_withdrawal",
+          payload: {
+            user_id: user.user_id,
+            coins,
+            method,
+            payout_address: payoutAddress,
+          },
+        }),
+      });
+      const data = await res.json();
 
-    const updatedBalance = user.balance - coins;
-    const updatedWithdrawn = user.total_withdrawn + coins;
+      if (!data.success) {
+        alert(data.error || "Withdrawal request failed. Please check details.");
+        triggerNotificationHaptic("error");
+        return false;
+      }
 
-    // Deduct coins immediately
-    setUser((prev) => ({
-      ...prev,
-      balance: updatedBalance,
-      total_withdrawn: updatedWithdrawn,
-    }));
+      // Update state authoritatively from server response
+      if (data.user) {
+        setUser(data.user);
+      }
+      if (data.withdrawal) {
+        setWithdrawals((prev) => [data.withdrawal, ...prev]);
+        if (isFirebaseConfigured) {
+          addDoc(collection(db, "withdrawals"), data.withdrawal);
+        }
+      }
 
-    setWithdrawals((prev) => [newRequest, ...prev]);
-
-    // Send to Server /api/sync
-    fetch("/api/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "request_withdrawal",
-        payload: {
-          user_id: user.user_id,
-          coins,
-          amount_inr: inrValue,
-          method,
-          payout_address: payoutAddress,
-        },
-      }),
-    }).catch(() => {});
-
-    // Persist to Firestore if configured
-    if (isFirebaseConfigured) {
-      addDoc(collection(db, "withdrawals"), newRequest);
-      const userDocRef = doc(db, "users", user.user_id);
-      setDoc(
-        userDocRef,
-        {
-          balance: updatedBalance,
-          total_withdrawn: updatedWithdrawn,
-        },
-        { merge: true }
-      );
+      triggerNotificationHaptic("success");
+      return true;
+    } catch {
+      triggerNotificationHaptic("error");
+      return false;
     }
-
-    triggerNotificationHaptic("success");
-    return true;
   };
 
   // Submit Promotion Request
@@ -317,29 +307,34 @@ export default function MudraTubeApp() {
   }): Promise<boolean> => {
     triggerHaptic("medium");
 
-    // Send to Server /api/sync
-    fetch("/api/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "submit_promotion",
-        payload: {
-          ...data,
-          user_id: user.user_id,
-        },
-      }),
-    }).catch(() => {});
-
-    if (isFirebaseConfigured) {
-      addDoc(collection(db, "promotions"), {
-        ...data,
-        user_id: user.user_id,
-        status: "pending",
-        created_at: new Date().toISOString(),
+    try {
+      const res = await apiFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "submit_promotion",
+          payload: {
+            ...data,
+            user_id: user.user_id,
+          },
+        }),
       });
+      const resData = await res.json();
+
+      if (!resData.success) {
+        alert(resData.error || "Failed to submit promotion request.");
+        triggerNotificationHaptic("error");
+        return false;
+      }
+
+      if (isFirebaseConfigured && resData.promotion) {
+        addDoc(collection(db, "promotions"), resData.promotion);
+      }
+      triggerNotificationHaptic("success");
+      return true;
+    } catch {
+      triggerNotificationHaptic("error");
+      return false;
     }
-    triggerNotificationHaptic("success");
-    return true;
   };
 
   // Launch CPA Offerwall with Dynamic SubID
@@ -350,38 +345,38 @@ export default function MudraTubeApp() {
   };
 
   // Send Message in 1-to-1 Support Chat
-  const handleSendSupportMessage = (text: string) => {
+  const handleSendSupportMessage = async (text: string) => {
     triggerHaptic("light");
-    const newMsg: SupportChatMessage = {
-      id: `msg_${Date.now()}`,
-      user_id: user.user_id,
-      user_name: user.first_name || user.username || "User",
-      sender: "user",
-      message: text,
-      timestamp: new Date().toISOString(),
-      read: false,
-    };
-    setSupportMessages((prev) => [...prev, newMsg]);
+    try {
+      const res = await apiFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "send_support_message",
+          payload: {
+            user_id: user.user_id,
+            user_name: user.first_name || user.username || "User",
+            sender: "user",
+            message: text,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || "Failed to send message.");
+        triggerNotificationHaptic("error");
+        return;
+      }
 
-    // Send to Server /api/sync
-    fetch("/api/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "send_support_message",
-        payload: {
-          user_id: user.user_id,
-          user_name: user.first_name || user.username || "User",
-          sender: "user",
-          message: text,
-        },
-      }),
-    }).catch(() => {});
-
-    if (isFirebaseConfigured) {
-      addDoc(collection(db, "support_messages"), newMsg);
+      if (data.message) {
+        setSupportMessages((prev) => [...prev, data.message]);
+        if (isFirebaseConfigured) {
+          addDoc(collection(db, "support_messages"), data.message);
+        }
+      }
+      triggerNotificationHaptic("success");
+    } catch {
+      triggerNotificationHaptic("error");
     }
-    triggerNotificationHaptic("success");
   };
 
   // Save user's personal UPI ID & TON Address
@@ -401,9 +396,8 @@ export default function MudraTubeApp() {
       if (ton !== undefined) localStorage.setItem("mudratube_saved_ton", ton);
     }
 
-    fetch("/api/sync", {
+    apiFetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "connect_user",
         payload: {

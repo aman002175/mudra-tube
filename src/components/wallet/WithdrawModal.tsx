@@ -60,18 +60,32 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       return;
     }
 
-    if (!address.trim()) {
-      setError(method === "UPI" ? "Please enter a valid UPI ID (e.g. user@paytm)." : "Please enter a valid TON address.");
+    const cleanAddress = address.trim();
+    if (!cleanAddress) {
+      setError(method === "UPI" ? "Please enter your UPI ID." : "Please enter your TON address.");
       return;
     }
 
+    if (method === "UPI") {
+      const upiRegex = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
+      if (!upiRegex.test(cleanAddress)) {
+        setError("Invalid UPI ID format. Example: user@okhdfcbank or 9876543210@paytm");
+        return;
+      }
+    } else if (method === "TON") {
+      if (cleanAddress.length < 30) {
+        setError("Invalid TON wallet address format (EQ... or UQ...).");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
-    const result = await onSubmitWithdrawal(method, address.trim(), parsedCoins);
+    const result = await onSubmitWithdrawal(method, cleanAddress, parsedCoins);
     setIsSubmitting(false);
 
     if (result) {
       if (saveAddressOption && onSaveAddress) {
-        onSaveAddress(method, address.trim());
+        onSaveAddress(method, cleanAddress);
       }
       setSuccess(true);
       setTimeout(() => {
@@ -79,7 +93,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         onClose();
       }, 2000);
     } else {
-      setError("Withdrawal request failed. Please try again.");
+      setError("Withdrawal request rejected by server. Please verify details.");
     }
   };
 

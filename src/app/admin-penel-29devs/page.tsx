@@ -32,6 +32,7 @@ import {
   Wallet,
   History,
   Eye,
+  ShieldAlert,
 } from "lucide-react";
 import {
   ChannelTask,
@@ -59,10 +60,12 @@ export default function AdminPortalPage() {
   const [adminUsername, setAdminUsername] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  const [adminToken, setAdminToken] = useState<string>("");
+  const [securityLogs, setSecurityLogs] = useState<any[]>([]);
 
   // Navigation Sub-tab
   const [currentSection, setCurrentSection] = useState<
-    "overview" | "users" | "withdrawals" | "promotions" | "approvals" | "packages" | "payments" | "support" | "settings"
+    "overview" | "users" | "withdrawals" | "promotions" | "approvals" | "packages" | "payments" | "support" | "settings" | "security"
   >("overview");
 
   // State Stores
@@ -112,6 +115,28 @@ export default function AdminPortalPage() {
   const [adminReplyText, setAdminReplyText] = useState("");
   const [inspectedUser, setInspectedUser] = useState<UserProfile | null>(null);
 
+  // Check for saved session token
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedToken = sessionStorage.getItem("mudratube_admin_token");
+      if (savedToken) {
+        setAdminToken(savedToken);
+        setIsAuthenticated(true);
+      }
+    }
+  }, []);
+
+  // Secure admin fetch helper with Bearer token authentication
+  const adminFetch = (url: string, options: RequestInit = {}) => {
+    const token = adminToken || (typeof window !== "undefined" ? sessionStorage.getItem("mudratube_admin_token") : "");
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...((options.headers as Record<string, string>) || {}),
+    };
+    return fetch(url, { ...options, headers });
+  };
+
   // Auth Submit
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,17 +148,29 @@ export default function AdminPortalPage() {
         body: JSON.stringify({ username: adminUsername, password: adminPassword }),
       });
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.token) {
+        setAdminToken(data.token);
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("mudratube_admin_token", data.token);
+        }
         setIsAuthenticated(true);
         setAuthError("");
         return;
       }
+      setAuthError(data.error || "Galat Username ya Password! Kripya sahi credentials dalein.");
+      return;
     } catch {
       setAuthError("Server connection error during authentication.");
       return;
     }
+  };
 
-    setAuthError("Galat Username ya Password! Kripya sahi credentials dalein.");
+  const handleLogout = () => {
+    setAdminToken("");
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("mudratube_admin_token");
+    }
+    setIsAuthenticated(false);
   };
 
   // Sync real data from /api/sync
@@ -141,16 +178,23 @@ export default function AdminPortalPage() {
     if (!isAuthenticated) return;
 
     const fetchLiveSync = () => {
-      fetch("/api/sync")
-        .then((res) => res.json())
+      adminFetch("/api/sync")
+        .then((res) => {
+          if (res.status === 401 || res.status === 403) {
+            handleLogout();
+            return null;
+          }
+          return res.json();
+        })
         .then((data) => {
-          if (data.success) {
+          if (data && data.success) {
             if (data.users) setUsersList(data.users);
             if (data.withdrawals) setWithdrawals(data.withdrawals);
             if (data.promotions) setPromotionRequests(data.promotions);
             if (data.supportMessages) setSupportMessages(data.supportMessages);
             if (data.tasks && data.tasks.length > 0) setTasks(data.tasks);
             if (data.config) setConfig(data.config);
+            if (data.securityLogs) setSecurityLogs(data.securityLogs);
           }
         })
         .catch(() => {});
@@ -159,12 +203,31 @@ export default function AdminPortalPage() {
     fetchLiveSync();
     const interval = setInterval(fetchLiveSync, 3000);
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, adminToken]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleToggleBan = (userId: string) => {
+    adminFetch("/api/sync", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "admin_toggle_user_ban",
+        payload: { user_id: userId },
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.user) {
+          setUsersList((prev) =>
+            prev.map((u) => (u.user_id === userId ? { ...u, is_banned: data.user.is_banned } : u))
+          );
+        }
+      })
+      .catch(() => {});
   };
 
   const handleResolveWithdrawal = (
@@ -187,9 +250,8 @@ export default function AdminPortalPage() {
     );
 
     // Sync with server
-    fetch("/api/sync", {
+    adminFetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "admin_resolve_withdrawal",
         payload: { id, status: newStatus, refund },
@@ -225,9 +287,8 @@ export default function AdminPortalPage() {
     );
 
     // Sync with server
-    fetch("/api/sync", {
+    adminFetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "admin_adjust_balance",
         payload: { user_id: userId, delta },
@@ -367,9 +428,8 @@ export default function AdminPortalPage() {
     );
 
     // Sync with server
-    fetch("/api/sync", {
+    adminFetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "admin_approve_promotion",
         payload: { id: req.id },
@@ -460,9 +520,8 @@ export default function AdminPortalPage() {
     setSupportMessages((prev) => [...prev, newReply]);
 
     // Sync with server
-    fetch("/api/sync", {
+    adminFetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "send_support_message",
         payload: {
@@ -572,7 +631,7 @@ export default function AdminPortalPage() {
         </div>
 
         <button
-          onClick={() => setIsAuthenticated(false)}
+          onClick={handleLogout}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-pill text-xs font-bold text-rose-700 hover:bg-rose-50 active:scale-95"
         >
           <LogOut className="w-3.5 h-3.5" />
@@ -586,6 +645,7 @@ export default function AdminPortalPage() {
         <div className="flex flex-wrap gap-2 p-1.5 glass-card rounded-2xl border border-white/90">
           {[
             { id: "overview", label: "Overview", icon: TrendingUp },
+            { id: "security", label: "Security & Anti-Hack", icon: ShieldAlert, count: securityLogs.length },
             { id: "support", label: "Support Desk", icon: MessageSquare, count: unreadSupportCount },
             { id: "payments", label: "UPI & Wallets", icon: Wallet },
             { id: "approvals", label: "Sponsor Orders", icon: ShieldCheck, count: pendingApprovals.length },
@@ -2089,6 +2149,243 @@ export default function AdminPortalPage() {
 
               <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
                 ✓ Changes take effect immediately across all connected Telegram WebApp clients.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 10. SECURITY & ANTI-HACK SENTINEL */}
+        {currentSection === "security" && (
+          <div className="space-y-6">
+            {/* Top Header Card */}
+            <div className="glass-elevated p-6 rounded-squircle border border-white/90 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center shadow-md">
+                    <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-sky-950 flex items-center gap-2">
+                      <span>Security & Anti-Abuse Sentinel</span>
+                      <span className="text-[10px] uppercase font-black px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        Shield Active
+                      </span>
+                    </h2>
+                    <p className="text-xs text-sky-700 font-medium">
+                      Live protection against rate limit abuse, data tampering, brute force logins, and fake requests
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      adminFetch("/api/sync")
+                        .then((res) => res.json())
+                        .then((d) => {
+                          if (d.securityLogs) setSecurityLogs(d.securityLogs);
+                        });
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-pill text-xs font-bold text-sky-800 hover:bg-white active:scale-95"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh Log</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Security Shield Badges */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+                <div className="glass-card p-3 rounded-2xl border border-sky-100">
+                  <div className="text-[10px] font-bold text-sky-700 uppercase">Rate Limiter</div>
+                  <div className="text-sm font-black text-sky-950 flex items-center gap-1.5 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Sliding Window</span>
+                  </div>
+                  <div className="text-[10px] text-sky-600 font-medium mt-0.5">IP & User Quotas</div>
+                </div>
+
+                <div className="glass-card p-3 rounded-2xl border border-sky-100">
+                  <div className="text-[10px] font-bold text-sky-700 uppercase">Auth Tokens</div>
+                  <div className="text-sm font-black text-sky-950 flex items-center gap-1.5 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>HMAC-SHA256</span>
+                  </div>
+                  <div className="text-[10px] text-sky-600 font-medium mt-0.5">12h Signed Sessions</div>
+                </div>
+
+                <div className="glass-card p-3 rounded-2xl border border-sky-100">
+                  <div className="text-[10px] font-bold text-sky-700 uppercase">Anti-Tampering</div>
+                  <div className="text-sm font-black text-sky-950 flex items-center gap-1.5 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>Server Calculations</span>
+                  </div>
+                  <div className="text-[10px] text-sky-600 font-medium mt-0.5">Client Coins Ignored</div>
+                </div>
+
+                <div className="glass-card p-3 rounded-2xl border border-sky-100">
+                  <div className="text-[10px] font-bold text-sky-700 uppercase">Anti-Double Spend</div>
+                  <div className="text-sm font-black text-sky-950 flex items-center gap-1.5 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>15s Cooldown</span>
+                  </div>
+                  <div className="text-[10px] text-sky-600 font-medium mt-0.5">Atomic Balance Lock</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Real-time Security Incident Audit Log */}
+            <div className="glass-elevated p-6 rounded-squircle border border-white/90 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-black text-sky-950 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                    <span>Real-Time Security Incident Audit Log</span>
+                  </h3>
+                  <p className="text-xs text-sky-700 font-medium">
+                    Auto-intercepted malicious attempts, rate limit locks, and tampering requests
+                  </p>
+                </div>
+                <span className="text-xs font-black text-sky-900 bg-sky-100/80 px-2.5 py-1 rounded-full border border-sky-200">
+                  {securityLogs.length} Events Logged
+                </span>
+              </div>
+
+              {securityLogs.length === 0 ? (
+                <div className="p-8 text-center glass-card rounded-2xl border border-dashed border-emerald-300 space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <div className="text-sm font-bold text-emerald-900">Zero Security Threats Detected</div>
+                  <div className="text-xs text-sky-700 max-w-sm mx-auto">
+                    All incoming traffic and Mini App calls are clean and conforming to strict validation policies.
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-sky-100 text-[11px] font-bold text-sky-800 uppercase tracking-wider">
+                        <th className="py-2.5 px-3">Time</th>
+                        <th className="py-2.5 px-3">Incident Type</th>
+                        <th className="py-2.5 px-3">Client IP</th>
+                        <th className="py-2.5 px-3">User ID</th>
+                        <th className="py-2.5 px-3">Audit Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-sky-100/70">
+                      {securityLogs.map((log) => {
+                        const typeColors: Record<string, string> = {
+                          FAILED_LOGIN: "bg-rose-100 text-rose-800 border-rose-200",
+                          TAMPERING_ATTEMPT: "bg-purple-100 text-purple-800 border-purple-200",
+                          SUSPICIOUS_PAYLOAD: "bg-orange-100 text-orange-800 border-orange-200",
+                          RATE_LIMIT: "bg-amber-100 text-amber-800 border-amber-200",
+                          UNAUTHORIZED_ADMIN: "bg-rose-200 text-rose-950 border-rose-300",
+                        };
+
+                        return (
+                          <tr key={log.id} className="hover:bg-white/60 transition-colors">
+                            <td className="py-2.5 px-3 text-sky-700 font-mono text-[11px] whitespace-nowrap">
+                              {new Date(log.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <span
+                                className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${
+                                  typeColors[log.type] || "bg-slate-100 text-slate-800"
+                                }`}
+                              >
+                                {log.type}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-sky-900 font-bold whitespace-nowrap">
+                              {log.ip}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-sky-800 whitespace-nowrap">
+                              {log.userId ? log.userId : "—"}
+                            </td>
+                            <td className="py-2.5 px-3 text-sky-900 font-medium">
+                              {log.details}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* User Access & Instant Ban Desk */}
+            <div className="glass-elevated p-6 rounded-squircle border border-white/90 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-black text-sky-950 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-sky-600" />
+                    <span>Instant User Suspension Desk</span>
+                  </h3>
+                  <p className="text-xs text-sky-700 font-medium">
+                    Immediately block or unblock malicious users or abusers from claiming coins or withdrawing
+                  </p>
+                </div>
+                <div className="text-xs font-black text-rose-800 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200">
+                  {usersList.filter((u) => u.is_banned).length} Suspended Users
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {usersList.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-sky-600 font-medium">
+                    No users registered yet.
+                  </div>
+                ) : (
+                  usersList.map((u) => (
+                    <div
+                      key={u.user_id}
+                      className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                        u.is_banned
+                          ? "bg-rose-50/70 border-rose-200"
+                          : "glass-card border-sky-100 hover:bg-white/80"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${
+                            u.is_banned
+                              ? "bg-rose-200 text-rose-800"
+                              : "bg-sky-100 text-sky-800"
+                          }`}
+                        >
+                          {u.first_name.slice(0, 1).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                            <span>{u.first_name}</span>
+                            <span className="font-mono text-sky-600 text-[11px]">(@{u.username})</span>
+                            {u.is_banned && (
+                              <span className="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                                BANNED
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-mono text-sky-700">
+                            ID: {u.user_id} • Balance: {u.balance} Coins
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleToggleBan(u.user_id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                          u.is_banned
+                            ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                            : "bg-rose-600 text-white hover:bg-rose-700 shadow-sm"
+                        }`}
+                      >
+                        {u.is_banned ? "Unban Account" : "Suspend & Ban"}
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
