@@ -237,6 +237,10 @@ export function validateUserId(id: any): { valid: boolean; value: string; error?
   if (!/^[a-zA-Z0-9_\-]{3,64}$/.test(cleanId)) {
     return { valid: false, value: "", error: "Invalid user ID format" };
   }
+  // Reject browser demo users from polluting the database
+  if (cleanId.startsWith("demo_")) {
+    return { valid: false, value: "", error: "Demo users are not allowed in the database" };
+  }
   return { valid: true, value: cleanId };
 }
 

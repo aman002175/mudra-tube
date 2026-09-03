@@ -60,7 +60,7 @@ async function getLiveStore(): Promise<LiveStore> {
     
     const userMap = new Map<string, UserProfile>();
     for (const [uid, u] of Object.entries(dbState.users || {})) {
-      userMap.set(uid, u);
+      if (!uid.startsWith("demo_")) { userMap.set(uid, u); }
     }
     global.__mudratube_live_store = {
       users: userMap,
@@ -924,6 +924,10 @@ export async function POST(request: NextRequest) {
           "custom_service_title",
           "custom_service_telegram",
           "custom_total_users_count",
+          "help_desk_url",
+          "referral_system_enabled",
+          "referral_reward_type",
+          "referral_reward_amount"
         ];
 
         for (const key of Object.keys(payload)) {
