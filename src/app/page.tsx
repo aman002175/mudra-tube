@@ -67,107 +67,128 @@ export default function MudraTubeApp() {
   useEffect(() => {
     if (!isReady) return;
 
-    let actualId = "";
-    let actualUsername = "";
-    let actualFirstName = "";
-
     if (tgUser && tgUser.id) {
-      actualId = String(tgUser.id);
-      actualUsername = tgUser.username || `tg_${actualId}`;
-      actualFirstName = tgUser.first_name || "Earner";
-    } else {
-      // Browser testing mode: persist consistent ID across refreshes
-      let storedId = typeof window !== "undefined" ? localStorage.getItem("mudratube_user_id") : null;
-      if (!storedId) {
-        storedId = `user_${Math.floor(100000 + Math.random() * 900000)}`;
-        if (typeof window !== "undefined") localStorage.setItem("mudratube_user_id", storedId);
-      }
-      actualId = storedId;
-      actualUsername = `browser_${actualId.slice(-4)}`;
-      actualFirstName = "Tester";
-    }
+      const actualId = String(tgUser.id);
+      const actualUsername = tgUser.username || `tg_${actualId}`;
+      const actualFirstName = tgUser.first_name || "Earner";
 
-    // Connect to Server /api/sync
-    apiFetch("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({
-        action: "connect_user",
-        payload: {
-          user_id: actualId,
-          username: actualUsername,
-          first_name: actualFirstName,
-        },
-      }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.user) {
-          setUser(data.user);
-        }
-      })
-      .catch(() => {});
-
-    // Fetch initial state for tasks, withdrawals, support messages
-    const fetchUserData = () => {
-      apiFetch(`/api/sync?user_id=${actualId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success) {
-            if (data.config) setConfig(data.config);
-            if (data.user) setUser(data.user);
-            if (data.tasks) setTasks(data.tasks);
-            if (data.packages) setPackages(data.packages);
-            if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
-            if (data.withdrawals) setWithdrawals(data.withdrawals);
-            if (data.promotions) setPromotions(data.promotions);
-            if (data.supportMessages) setSupportMessages(data.supportMessages);
-            if (typeof data.total_users === "number") setTotalUsersCount(data.total_users);
-            else if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
-          }
-        })
-        .catch(() => {});
-    };
-
-    fetchUserData();
-    const interval = setInterval(fetchUserData, 4000);
-
-    if (isFirebaseConfigured) {
-      const userDocRef = doc(db, "users", actualId);
-      getDoc(userDocRef).then((snap) => {
-        if (!snap.exists()) {
-          const newUserDoc: UserProfile = {
+      // Connect to Server /api/sync
+      apiFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "connect_user",
+          payload: {
             user_id: actualId,
             username: actualUsername,
             first_name: actualFirstName,
-            balance: 0,
-            total_earned: 0,
-            total_withdrawn: 0,
-            completed_tasks: [],
-            referrals_count: 0,
-            is_banned: false,
-            created_at: new Date().toISOString(),
-          };
-          setDoc(userDocRef, newUserDoc);
-        }
-      });
+          },
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.user) {
+            setUser(data.user);
+          }
+        })
+        .catch(() => {});
 
-      const unsubUser = onSnapshot(userDocRef, (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as UserProfile;
-          setUser((prev) => ({ ...prev, ...data }));
-        }
-      });
+      // Fetch initial state for tasks, withdrawals, support messages
+      const fetchUserData = () => {
+        apiFetch(`/api/sync?user_id=${actualId}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              if (data.config) setConfig(data.config);
+              if (data.user) setUser(data.user);
+              if (data.tasks) setTasks(data.tasks);
+              if (data.packages) setPackages(data.packages);
+              if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
+              if (data.withdrawals) setWithdrawals(data.withdrawals);
+              if (data.promotions) setPromotions(data.promotions);
+              if (data.supportMessages) setSupportMessages(data.supportMessages);
+              if (typeof data.total_users === "number") setTotalUsersCount(data.total_users);
+              else if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
+            }
+          })
+          .catch(() => {});
+      };
+
+      fetchUserData();
+      const interval = setInterval(fetchUserData, 4000);
+
+      if (isFirebaseConfigured) {
+        const userDocRef = doc(db, "users", actualId);
+        getDoc(userDocRef).then((snap) => {
+          if (!snap.exists()) {
+            const newUserDoc: UserProfile = {
+              user_id: actualId,
+              username: actualUsername,
+              first_name: actualFirstName,
+              balance: 0,
+              total_earned: 0,
+              total_withdrawn: 0,
+              completed_tasks: [],
+              referrals_count: 0,
+              is_banned: false,
+              created_at: new Date().toISOString(),
+            };
+            setDoc(userDocRef, newUserDoc);
+          }
+        });
+
+        const unsubUser = onSnapshot(userDocRef, (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as UserProfile;
+            setUser((prev) => ({ ...prev, ...data }));
+          }
+        });
+
+        return () => {
+          clearInterval(interval);
+          unsubUser();
+        };
+      }
 
       return () => {
         clearInterval(interval);
-        unsubUser();
       };
-    }
+    } else {
+      // Browser testing mode: persist consistent ID across refreshes but DO NOT save to DB
+      let storedId = typeof window !== "undefined" ? localStorage.getItem("mudratube_user_id") : null;
+      if (!storedId) {
+        storedId = `demo_${Math.floor(100000 + Math.random() * 900000)}`;
+        if (typeof window !== "undefined") localStorage.setItem("mudratube_user_id", storedId);
+      }
+      const actualId = storedId;
+      setUser({
+        ...initialMockUser,
+        user_id: actualId,
+        username: `viewer_${actualId.slice(-4)}`,
+        first_name: "Web Viewer",
+      });
 
-    return () => {
-      clearInterval(interval);
-    };
-  }, [tgUser]);
+      // Poll only global data to avoid creating the user
+      const fetchGlobalData = () => {
+        apiFetch(`/api/sync`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              if (data.config) setConfig(data.config);
+              if (data.tasks) setTasks(data.tasks);
+              if (data.packages) setPackages(data.packages);
+              if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
+              if (typeof data.total_users === "number") setTotalUsersCount(data.total_users);
+              else if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
+            }
+          })
+          .catch(() => {});
+      };
+
+      fetchGlobalData();
+      const interval = setInterval(fetchGlobalData, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [isReady, tgUser]);
 
   // Handle Tab Switching with Haptics
   const handleSelectTab = (tab: TabType) => {
