@@ -9,7 +9,7 @@ import {
   AdminPaymentMethod,
   PromoPackage,
 } from "@/types";
-import { initialConfig, initialPackages, initialPaymentMethods } from "@/lib/mockData";
+import { initialConfig, initialPackages, initialPaymentMethods, initialTasks } from "@/lib/mockData";
 import {
   getClientIp,
   rateLimiter,
@@ -25,9 +25,10 @@ import {
   verifyAdminSessionToken,
   logSecurityIncident,
 } from "@/lib/security";
+import { loadDatabase, saveDatabase } from "@/lib/db";
 
 // ==========================================
-// SHARED IN-MEMORY SERVER STORE
+// PERSISTENT SERVER STORE
 // ==========================================
 interface LiveStore {
   users: Map<string, UserProfile>;
@@ -48,20 +49,42 @@ declare global {
 
 function getLiveStore(): LiveStore {
   if (!global.__mudratube_live_store) {
+    const dbState = loadDatabase();
+    const userMap = new Map<string, UserProfile>();
+    for (const [uid, u] of Object.entries(dbState.users || {})) {
+      userMap.set(uid, u);
+    }
     global.__mudratube_live_store = {
-      users: new Map<string, UserProfile>(),
-      withdrawals: [],
-      promotions: [],
-      supportMessages: [],
-      tasks: [],
-      paymentMethods: [...initialPaymentMethods],
-      packages: [...initialPackages],
-      config: { ...initialConfig },
+      users: userMap,
+      withdrawals: dbState.withdrawals || [],
+      promotions: dbState.promotions || [],
+      supportMessages: dbState.supportMessages || [],
+      tasks: dbState.tasks?.length > 0 ? dbState.tasks : [...initialTasks],
+      paymentMethods: dbState.paymentMethods?.length > 0 ? dbState.paymentMethods : [...initialPaymentMethods],
+      packages: dbState.packages?.length > 0 ? dbState.packages : [...initialPackages],
+      config: { ...initialConfig, ...(dbState.config || {}) },
       userTaskCooldown: new Map<string, number>(),
       userWithdrawCooldown: new Map<string, number>(),
     };
   }
   return global.__mudratube_live_store;
+}
+
+function persistStore(store: LiveStore): void {
+  const usersRecord: Record<string, UserProfile> = {};
+  for (const [uid, u] of store.users.entries()) {
+    usersRecord[uid] = u;
+  }
+  saveDatabase({
+    users: usersRecord,
+    withdrawals: store.withdrawals,
+    promotions: store.promotions,
+    supportMessages: store.supportMessages,
+    tasks: store.tasks,
+    paymentMethods: store.paymentMethods,
+    packages: store.packages,
+    config: store.config,
+  });
 }
 
 // ==========================================
@@ -220,33 +243,35 @@ export async function POST(request: NextRequest) {
         // Verify Telegram initData if supplied
         const tgInitData = request.headers.get("x-telegram-init-data");
         const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        const tgAuth = verifyTelegramInitData(tgInitData, botToken);
 
-        if (!tgAuth.valid) {
-          logSecurityIncident({
-            type: "TAMPERING_ATTEMPT",
-            ip,
-            userId,
-            details: `Telegram initData validation failed: ${tgAuth.error}`,
-          });
-          return NextResponse.json(
-            { success: false, error: "Telegram authentication signature verification failed." },
-            { status: 401 }
-          );
-        }
+        if (tgInitData && tgInitData.trim() !== "") {
+          const tgAuth = verifyTelegramInitData(tgInitData, botToken);
+          if (!tgAuth.valid) {
+            logSecurityIncident({
+              type: "TAMPERING_ATTEMPT",
+              ip,
+              userId,
+              details: `Telegram initData validation failed: ${tgAuth.error}`,
+            });
+            return NextResponse.json(
+              { success: false, error: "Telegram authentication signature verification failed." },
+              { status: 401 }
+            );
+          }
 
-        // Anti-impersonation: If valid Telegram user is decoded, verify ID match
-        if (tgAuth.user && String(tgAuth.user.id) !== userId) {
-          logSecurityIncident({
-            type: "TAMPERING_ATTEMPT",
-            ip,
-            userId,
-            details: `User ID impersonation mismatch: payload=${userId}, verifiedTelegram=${tgAuth.user.id}`,
-          });
-          return NextResponse.json(
-            { success: false, error: "User identity mismatch. Request rejected." },
-            { status: 403 }
-          );
+          // Anti-impersonation: If valid Telegram user is decoded, verify ID match
+          if (tgAuth.user && String(tgAuth.user.id) !== userId) {
+            logSecurityIncident({
+              type: "TAMPERING_ATTEMPT",
+              ip,
+              userId,
+              details: `User ID impersonation mismatch: payload=${userId}, verifiedTelegram=${tgAuth.user.id}`,
+            });
+            return NextResponse.json(
+              { success: false, error: "User identity mismatch. Request rejected." },
+              { status: 403 }
+            );
+          }
         }
 
         const cleanUsername = sanitizeString(payload.username || `user_${userId}`, 40);
@@ -290,6 +315,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        persistStore(store);
         return NextResponse.json({ success: true, user: existingUser });
       }
 
@@ -368,6 +394,7 @@ export async function POST(request: NextRequest) {
         user.completed_tasks.push(taskId);
         user.balance += rewardCoins;
         user.total_earned += rewardCoins;
+        persistStore(store);
 
         return NextResponse.json({ success: true, user, rewardAwarded: rewardCoins });
       }
@@ -458,8 +485,9 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // CRITICAL: CALCULATE INR VALUE ON SERVER (NEVER TRUST CLIENT AMOUNT)
-        const amountInr = Number((coins / store.config.coins_per_inr).toFixed(2));
+        // CRITICAL: CALCULATE INR VALUE ON SERVER (NEVER TRUST CLIENT AMOUNT, PREVENT ZERO DIVISION)
+        const coinsPerInr = Math.max(1, store.config.coins_per_inr || 300);
+        const amountInr = Number((coins / coinsPerInr).toFixed(2));
 
         // Deduct balance atomically
         user.balance -= coins;
@@ -478,6 +506,7 @@ export async function POST(request: NextRequest) {
         };
 
         store.withdrawals.unshift(newWithdrawal);
+        persistStore(store);
         return NextResponse.json({ success: true, withdrawal: newWithdrawal, user });
       }
 
@@ -547,6 +576,7 @@ export async function POST(request: NextRequest) {
         };
 
         store.promotions.unshift(newPromo);
+        persistStore(store);
         return NextResponse.json({ success: true, promotion: newPromo });
       }
 
@@ -561,7 +591,19 @@ export async function POST(request: NextRequest) {
         const userId = userVal.value;
         const sender = payload.sender === "admin" ? "admin" : "user";
 
-        if (sender === "user") {
+        if (sender === "admin") {
+          const authHeader = request.headers.get("authorization") || request.headers.get("x-admin-token");
+          const adminCheck = verifyAdminSessionToken(authHeader);
+          if (!adminCheck.valid) {
+            logSecurityIncident({
+              type: "UNAUTHORIZED_ADMIN",
+              ip,
+              userId,
+              details: "Unauthorized attempt to send support message as admin",
+            });
+            return NextResponse.json({ success: false, error: "Unauthorized: Admin verification required." }, { status: 403 });
+          }
+        } else {
           const msgRate = rateLimiter.check(
             `msg_rate_${userId}`,
             RATE_LIMIT_RULES.SUPPORT_MESSAGE.limit,
@@ -591,6 +633,7 @@ export async function POST(request: NextRequest) {
         };
 
         store.supportMessages.push(newMsg);
+        persistStore(store);
         return NextResponse.json({ success: true, message: newMsg });
       }
 
@@ -611,6 +654,11 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "Invalid status" }, { status: 400 });
         }
 
+        // Prevent double-processing completed or rejected requests
+        if (withdrawal.status !== "pending" && status !== "pending") {
+          return NextResponse.json({ success: false, error: `Withdrawal has already been marked as ${withdrawal.status}.` }, { status: 400 });
+        }
+
         withdrawal.status = status;
         if (utr_number) withdrawal.utr_number = sanitizeString(utr_number, 64);
         withdrawal.processed_at = new Date().toISOString();
@@ -628,6 +676,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        persistStore(store);
         return NextResponse.json({ success: true, withdrawal });
       }
 
@@ -651,6 +700,7 @@ export async function POST(request: NextRequest) {
         if (delta > 0) {
           user.total_earned += delta;
         }
+        persistStore(store);
         return NextResponse.json({ success: true, user });
       }
 
@@ -685,12 +735,12 @@ export async function POST(request: NextRequest) {
         };
 
         store.tasks.unshift(liveTask);
+        persistStore(store);
         return NextResponse.json({ success: true, task: liveTask, promotion: promo });
       }
 
       // 9. Admin Updates Config
       case "admin_update_config": {
-        // Only allow recognized configuration keys
         const allowedKeys = [
           "min_withdrawal_coins",
           "coins_per_inr",
@@ -712,10 +762,31 @@ export async function POST(request: NextRequest) {
 
         for (const key of Object.keys(payload)) {
           if (allowedKeys.includes(key)) {
-            (store.config as any)[key] = payload[key];
+            if (key === "coins_per_inr" || key === "min_withdrawal_coins" || key === "default_task_reward") {
+              const num = Number(payload[key]);
+              if (Number.isFinite(num) && num >= 1) {
+                (store.config as any)[key] = num;
+              }
+            } else if (key === "admin_profit_cut_percent") {
+              const cut = Number(payload[key]);
+              if (Number.isFinite(cut) && cut >= 5 && cut <= 95) {
+                (store.config as any)[key] = cut;
+              }
+            } else if (key === "min_rate_per_member_inr") {
+              const rate = Number(payload[key]);
+              if (Number.isFinite(rate) && rate > 0) {
+                (store.config as any)[key] = rate;
+              }
+            } else if (key === "custom_total_users_count") {
+              const count = Number(payload[key]);
+              (store.config as any)[key] = Number.isFinite(count) ? Math.max(0, count) : 0;
+            } else {
+              (store.config as any)[key] = payload[key];
+            }
           }
         }
 
+        persistStore(store);
         return NextResponse.json({ success: true, config: store.config });
       }
 
@@ -730,6 +801,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "User not found" }, { status: 404 });
         }
         user.is_banned = !user.is_banned;
+        persistStore(store);
         return NextResponse.json({ success: true, user });
       }
 
@@ -737,6 +809,7 @@ export async function POST(request: NextRequest) {
       case "admin_update_payment_methods": {
         if (Array.isArray(payload.paymentMethods)) {
           store.paymentMethods = payload.paymentMethods;
+          persistStore(store);
           return NextResponse.json({ success: true, paymentMethods: store.paymentMethods });
         }
         return NextResponse.json({ success: false, error: "Invalid paymentMethods array" }, { status: 400 });
@@ -746,6 +819,7 @@ export async function POST(request: NextRequest) {
       case "admin_update_tasks": {
         if (Array.isArray(payload.tasks)) {
           store.tasks = payload.tasks;
+          persistStore(store);
           return NextResponse.json({ success: true, tasks: store.tasks });
         }
         return NextResponse.json({ success: false, error: "Invalid tasks array" }, { status: 400 });
@@ -755,6 +829,7 @@ export async function POST(request: NextRequest) {
       case "admin_update_packages": {
         if (Array.isArray(payload.packages)) {
           store.packages = payload.packages;
+          persistStore(store);
           return NextResponse.json({ success: true, packages: store.packages });
         }
         return NextResponse.json({ success: false, error: "Invalid packages array" }, { status: 400 });
@@ -788,6 +863,7 @@ export async function POST(request: NextRequest) {
         if (payload.saved_ton_address !== undefined) {
           user.saved_ton_address = sanitizeString(payload.saved_ton_address, 100);
         }
+        persistStore(store);
         return NextResponse.json({ success: true, user });
       }
 

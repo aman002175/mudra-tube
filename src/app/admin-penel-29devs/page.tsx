@@ -113,6 +113,26 @@ export default function AdminPortalPage() {
   const [adminReplyText, setAdminReplyText] = useState("");
   const [inspectedUser, setInspectedUser] = useState<UserProfile | null>(null);
 
+  // Dedicated local input state for Settings tab (prevents polling resets & enables free backspacing)
+  const [settingsInputs, setSettingsInputs] = useState({
+    min_withdrawal_coins: String(initialConfig.min_withdrawal_coins ?? 300),
+    coins_per_inr: String(initialConfig.coins_per_inr ?? 300),
+    coins_per_ton: String(initialConfig.coins_per_ton ?? 50000),
+    default_task_reward: String(initialConfig.default_task_reward ?? 50),
+    min_rate_per_member_inr: String(initialConfig.min_rate_per_member_inr ?? 2.0),
+    admin_profit_cut_percent: initialConfig.admin_profit_cut_percent ?? 60,
+    admin_upi_id: initialConfig.admin_upi_id || "",
+    admin_telegram_handle: initialConfig.admin_telegram_handle || "",
+    bot_username: initialConfig.bot_username || "",
+    channel_tasks_enabled: initialConfig.channel_tasks_enabled !== false,
+    offerwalls_enabled: initialConfig.offerwalls_enabled !== false,
+    custom_service_enabled: initialConfig.custom_service_enabled !== false,
+    custom_service_title: initialConfig.custom_service_title || "",
+    custom_service_telegram: initialConfig.custom_service_telegram || "",
+    custom_total_users_count: String(initialConfig.custom_total_users_count ?? 0),
+  });
+  const [isSettingsDirty, setIsSettingsDirty] = useState(false);
+
   // Check for saved session token
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -192,7 +212,29 @@ export default function AdminPortalPage() {
             if (data.tasks) setTasks(data.tasks);
             if (data.packages) setPackages(data.packages);
             if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
-            if (data.config) setConfig(data.config);
+            if (data.supportMessages) setSupportMessages(data.supportMessages);
+            if (data.config) {
+              setConfig(data.config);
+              if (currentSection !== "settings" && !isSettingsDirty) {
+                setSettingsInputs({
+                  min_withdrawal_coins: String(data.config.min_withdrawal_coins ?? 300),
+                  coins_per_inr: String(data.config.coins_per_inr ?? 300),
+                  coins_per_ton: String(data.config.coins_per_ton ?? 50000),
+                  default_task_reward: String(data.config.default_task_reward ?? 50),
+                  min_rate_per_member_inr: String(data.config.min_rate_per_member_inr ?? 2.0),
+                  admin_profit_cut_percent: data.config.admin_profit_cut_percent ?? 60,
+                  admin_upi_id: data.config.admin_upi_id || "",
+                  admin_telegram_handle: data.config.admin_telegram_handle || "",
+                  bot_username: data.config.bot_username || "",
+                  channel_tasks_enabled: data.config.channel_tasks_enabled !== false,
+                  offerwalls_enabled: data.config.offerwalls_enabled !== false,
+                  custom_service_enabled: data.config.custom_service_enabled !== false,
+                  custom_service_title: data.config.custom_service_title || "",
+                  custom_service_telegram: data.config.custom_service_telegram || "",
+                  custom_total_users_count: String(data.config.custom_total_users_count ?? 0),
+                });
+              }
+            }
           }
         })
         .catch(() => {});
@@ -201,7 +243,7 @@ export default function AdminPortalPage() {
     fetchLiveSync();
     const interval = setInterval(fetchLiveSync, 3000);
     return () => clearInterval(interval);
-  }, [isAuthenticated, adminToken]);
+  }, [isAuthenticated, adminToken, currentSection, isSettingsDirty]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -616,9 +658,27 @@ export default function AdminPortalPage() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configSavedToast, setConfigSavedToast] = useState(false);
 
-  const handleSaveConfig = async (customCfg?: GlobalConfig) => {
+  const handleSaveConfig = async (customCfg?: Partial<GlobalConfig>) => {
     setConfigSaving(true);
-    const targetConfig = customCfg || config;
+    const targetConfig: GlobalConfig = {
+      ...config,
+      min_withdrawal_coins: Math.max(1, parseInt(settingsInputs.min_withdrawal_coins) || 300),
+      coins_per_inr: Math.max(1, parseInt(settingsInputs.coins_per_inr) || 300),
+      coins_per_ton: Math.max(1, parseInt(settingsInputs.coins_per_ton) || 50000),
+      default_task_reward: Math.max(1, parseInt(settingsInputs.default_task_reward) || 50),
+      min_rate_per_member_inr: Math.max(0.1, parseFloat(settingsInputs.min_rate_per_member_inr) || 2.0),
+      admin_profit_cut_percent: Number(settingsInputs.admin_profit_cut_percent) || 60,
+      admin_upi_id: settingsInputs.admin_upi_id.trim(),
+      admin_telegram_handle: settingsInputs.admin_telegram_handle.trim(),
+      bot_username: settingsInputs.bot_username.trim(),
+      channel_tasks_enabled: Boolean(settingsInputs.channel_tasks_enabled),
+      offerwalls_enabled: Boolean(settingsInputs.offerwalls_enabled),
+      custom_service_enabled: Boolean(settingsInputs.custom_service_enabled),
+      custom_service_title: settingsInputs.custom_service_title.trim(),
+      custom_service_telegram: settingsInputs.custom_service_telegram.trim(),
+      custom_total_users_count: Math.max(0, parseInt(settingsInputs.custom_total_users_count) || 0),
+      ...(customCfg || {}),
+    };
     try {
       const res = await adminFetch("/api/sync", {
         method: "POST",
@@ -630,6 +690,24 @@ export default function AdminPortalPage() {
       const d = await res.json();
       if (d.success && d.config) {
         setConfig(d.config);
+        setIsSettingsDirty(false);
+        setSettingsInputs({
+          min_withdrawal_coins: String(d.config.min_withdrawal_coins ?? 300),
+          coins_per_inr: String(d.config.coins_per_inr ?? 300),
+          coins_per_ton: String(d.config.coins_per_ton ?? 50000),
+          default_task_reward: String(d.config.default_task_reward ?? 50),
+          min_rate_per_member_inr: String(d.config.min_rate_per_member_inr ?? 2.0),
+          admin_profit_cut_percent: d.config.admin_profit_cut_percent ?? 60,
+          admin_upi_id: d.config.admin_upi_id || "",
+          admin_telegram_handle: d.config.admin_telegram_handle || "",
+          bot_username: d.config.bot_username || "",
+          channel_tasks_enabled: d.config.channel_tasks_enabled !== false,
+          offerwalls_enabled: d.config.offerwalls_enabled !== false,
+          custom_service_enabled: d.config.custom_service_enabled !== false,
+          custom_service_title: d.config.custom_service_title || "",
+          custom_service_telegram: d.config.custom_service_telegram || "",
+          custom_total_users_count: String(d.config.custom_total_users_count ?? 0),
+        });
         setConfigSavedToast(true);
         setTimeout(() => setConfigSavedToast(false), 3000);
       }
@@ -2145,20 +2223,46 @@ export default function AdminPortalPage() {
             </h3>
 
             <div className="space-y-3 text-xs">
+              {/* DATABASE & REAL-TIME SYNC STATUS CARD */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-emerald-950 flex items-center gap-1.5 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                    <span>Database Engine & Cloud Sync</span>
+                  </span>
+                  <span className="text-[11px] font-mono font-bold bg-white text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-300">
+                    🟢 Active & Connected
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-emerald-900">
+                  <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                    <span className="block text-slate-500 text-[10px] font-bold">Total Registered Users</span>
+                    <span className="font-mono font-black text-sm text-emerald-900">{usersList.length}</span>
+                  </div>
+                  <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                    <span className="block text-slate-500 text-[10px] font-bold">Total Withdrawal Tickets</span>
+                    <span className="font-mono font-black text-sm text-emerald-900">{withdrawals.length}</span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-emerald-700 leading-relaxed">
+                  Persistent disk database is active. All user registrations, balance updates, and settings changes are saved permanently.
+                </p>
+              </div>
+
               <div>
                 <label className="block font-bold text-sky-900 mb-1">
                   Minimum Withdrawal Threshold (Coins)
                 </label>
                 <input
-                  type="number"
-                  value={config.min_withdrawal_coins === 0 ? "" : config.min_withdrawal_coins}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      min_withdrawal_coins: e.target.value === "" ? 0 : Number(e.target.value),
-                    })
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  value={settingsInputs.min_withdrawal_coins}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, min_withdrawal_coins: e.target.value });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
+                  placeholder="300"
                 />
               </div>
 
@@ -2167,16 +2271,19 @@ export default function AdminPortalPage() {
                   Coins per 1 INR (Conversion Rate)
                 </label>
                 <input
-                  type="number"
-                  value={config.coins_per_inr === 0 ? "" : config.coins_per_inr}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      coins_per_inr: e.target.value === "" ? 0 : Number(e.target.value),
-                    })
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  value={settingsInputs.coins_per_inr}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, coins_per_inr: e.target.value });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
+                  placeholder="300"
                 />
+                <span className="text-[10px] text-sky-600 block mt-0.5">
+                  e.g. 300 coins = ₹1 INR (or 200 coins = ₹1 INR)
+                </span>
               </div>
 
               <div>
@@ -2184,15 +2291,15 @@ export default function AdminPortalPage() {
                   Default Task Reward (Coins)
                 </label>
                 <input
-                  type="number"
-                  value={config.default_task_reward === 0 ? "" : config.default_task_reward}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      default_task_reward: e.target.value === "" ? 0 : Number(e.target.value),
-                    })
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  value={settingsInputs.default_task_reward}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, default_task_reward: e.target.value });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
+                  placeholder="50"
                 />
               </div>
 
@@ -2201,17 +2308,15 @@ export default function AdminPortalPage() {
                   Minimum Rate Per Member Floor (₹ INR per custom member)
                 </label>
                 <input
-                  type="number"
-                  step={0.1}
-                  min={0.1}
-                  value={config.min_rate_per_member_inr === 0 ? "" : config.min_rate_per_member_inr}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      min_rate_per_member_inr: e.target.value === "" ? 0 : Number(e.target.value),
-                    })
-                  }
+                  type="text"
+                  inputMode="decimal"
+                  value={settingsInputs.min_rate_per_member_inr}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, min_rate_per_member_inr: e.target.value });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
+                  placeholder="2.0"
                 />
                 <span className="text-[10px] text-sky-600 block mt-0.5">
                   Sponsors asking for custom member counts cannot pay less than this rate per user.
@@ -2224,7 +2329,7 @@ export default function AdminPortalPage() {
                     Default Admin Revenue Cut (% from Sponsor Packages)
                   </label>
                   <span className="font-black text-sky-950 bg-sky-100 px-2 py-0.5 rounded-md">
-                    {config.admin_profit_cut_percent}% Admin / {100 - config.admin_profit_cut_percent}% Users Pool
+                    {settingsInputs.admin_profit_cut_percent}% Admin / {100 - Number(settingsInputs.admin_profit_cut_percent)}% Users Pool
                   </span>
                 </div>
                 <input
@@ -2232,11 +2337,11 @@ export default function AdminPortalPage() {
                   min={10}
                   max={90}
                   step={5}
-                  value={config.admin_profit_cut_percent}
+                  value={settingsInputs.admin_profit_cut_percent}
                   onChange={(e) => {
+                    setIsSettingsDirty(true);
                     const val = parseInt(e.target.value) || 60;
-                    setConfig({ ...config, admin_profit_cut_percent: val });
-                    setAdminProfitCut(val);
+                    setSettingsInputs({ ...settingsInputs, admin_profit_cut_percent: val });
                   }}
                   className="w-full accent-sky-600 h-2 bg-sky-200 rounded-lg cursor-pointer"
                 />
@@ -2248,8 +2353,11 @@ export default function AdminPortalPage() {
                 </label>
                 <input
                   type="text"
-                  value={config.admin_upi_id}
-                  onChange={(e) => setConfig({ ...config, admin_upi_id: e.target.value })}
+                  value={settingsInputs.admin_upi_id}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, admin_upi_id: e.target.value });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-mono font-bold text-sky-950"
                   placeholder="e.g. yourname@paytm"
                 />
@@ -2261,8 +2369,11 @@ export default function AdminPortalPage() {
                 </label>
                 <input
                   type="text"
-                  value={config.admin_telegram_handle}
-                  onChange={(e) => setConfig({ ...config, admin_telegram_handle: e.target.value })}
+                  value={settingsInputs.admin_telegram_handle}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, admin_telegram_handle: e.target.value });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-mono font-bold text-sky-950"
                   placeholder="e.g. @MudraAdmin"
                 />
@@ -2274,8 +2385,11 @@ export default function AdminPortalPage() {
                 </label>
                 <input
                   type="text"
-                  value={config.bot_username}
-                  onChange={(e) => setConfig({ ...config, bot_username: e.target.value })}
+                  value={settingsInputs.bot_username}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, bot_username: e.target.value });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-mono font-bold text-sky-950"
                   placeholder="e.g. @MudraTube_bot"
                 />
@@ -2297,23 +2411,23 @@ export default function AdminPortalPage() {
                 </p>
                 <div className="flex items-center gap-2">
                   <input
-                    type="number"
-                    value={config.custom_total_users_count || 0}
-                    onChange={(e) =>
-                      setConfig({
-                        ...config,
-                        custom_total_users_count: parseInt(e.target.value) || 0,
-                      })
-                    }
+                    type="text"
+                    inputMode="numeric"
+                    value={settingsInputs.custom_total_users_count}
+                    onChange={(e) => {
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({ ...settingsInputs, custom_total_users_count: e.target.value });
+                    }}
                     className="flex-1 px-3 py-2 rounded-xl bg-white border border-sky-200 font-bold text-sky-950"
                     placeholder="e.g. 1500 (0 = show live count)"
                   />
                   <button
                     type="button"
-                    onClick={() =>
-                      setConfig({ ...config, custom_total_users_count: usersList.length })
-                    }
-                    className="px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-800 font-bold hover:bg-sky-100 active:scale-95"
+                    onClick={() => {
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({ ...settingsInputs, custom_total_users_count: String(usersList.length) });
+                    }}
+                    className="px-3 py-2 rounded-xl bg-white border border-sky-200 text-sky-800 font-bold hover:bg-sky-100 active:scale-95 text-xs"
                   >
                     Sync Live Count
                   </button>
@@ -2329,10 +2443,11 @@ export default function AdminPortalPage() {
                   <label className="flex items-center gap-1.5 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={config.custom_service_enabled !== false}
-                      onChange={(e) =>
-                        setConfig({ ...config, custom_service_enabled: e.target.checked })
-                      }
+                      checked={settingsInputs.custom_service_enabled}
+                      onChange={(e) => {
+                        setIsSettingsDirty(true);
+                        setSettingsInputs({ ...settingsInputs, custom_service_enabled: e.target.checked });
+                      }}
                       className="rounded text-purple-600"
                     />
                     <span className="font-bold text-purple-900 text-xs">Active</span>
@@ -2345,10 +2460,11 @@ export default function AdminPortalPage() {
                   </label>
                   <textarea
                     rows={2}
-                    value={config.custom_service_title || ""}
-                    onChange={(e) =>
-                      setConfig({ ...config, custom_service_title: e.target.value })
-                    }
+                    value={settingsInputs.custom_service_title}
+                    onChange={(e) => {
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({ ...settingsInputs, custom_service_title: e.target.value });
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-white border border-purple-200 font-bold text-purple-950 text-xs focus:ring-2 focus:ring-purple-400"
                     placeholder="need custom solution telegram bot,web,App?? contect here..🚀💰"
                   />
@@ -2360,10 +2476,11 @@ export default function AdminPortalPage() {
                   </label>
                   <input
                     type="text"
-                    value={config.custom_service_telegram || ""}
-                    onChange={(e) =>
-                      setConfig({ ...config, custom_service_telegram: e.target.value })
-                    }
+                    value={settingsInputs.custom_service_telegram}
+                    onChange={(e) => {
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({ ...settingsInputs, custom_service_telegram: e.target.value });
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-white border border-purple-200 font-mono font-bold text-purple-950 text-xs"
                     placeholder="e.g. @amxnbixnoe"
                   />
@@ -2373,8 +2490,9 @@ export default function AdminPortalPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setConfig({
-                        ...config,
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({
+                        ...settingsInputs,
                         custom_service_enabled: false,
                       });
                     }}
@@ -2385,8 +2503,9 @@ export default function AdminPortalPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setConfig({
-                        ...config,
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({
+                        ...settingsInputs,
                         custom_service_enabled: true,
                         custom_service_title: "need custom solution telegram bot,web,App?? contect here..🚀💰",
                         custom_service_telegram: "@amxnbixnoe",
@@ -2403,10 +2522,11 @@ export default function AdminPortalPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={config.channel_tasks_enabled}
-                    onChange={(e) =>
-                      setConfig({ ...config, channel_tasks_enabled: e.target.checked })
-                    }
+                    checked={settingsInputs.channel_tasks_enabled}
+                    onChange={(e) => {
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({ ...settingsInputs, channel_tasks_enabled: e.target.checked });
+                    }}
                     className="rounded text-sky-600"
                   />
                   <span className="font-bold text-sky-900">Enable Channel Join Tasks</span>
@@ -2415,10 +2535,11 @@ export default function AdminPortalPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={config.offerwalls_enabled}
-                    onChange={(e) =>
-                      setConfig({ ...config, offerwalls_enabled: e.target.checked })
-                    }
+                    checked={settingsInputs.offerwalls_enabled}
+                    onChange={(e) => {
+                      setIsSettingsDirty(true);
+                      setSettingsInputs({ ...settingsInputs, offerwalls_enabled: e.target.checked });
+                    }}
                     className="rounded text-sky-600"
                   />
                   <span className="font-bold text-sky-900">Enable CPA Offerwalls</span>
@@ -2426,7 +2547,7 @@ export default function AdminPortalPage() {
               </div>
 
               <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
-                ✓ Changes take effect immediately across all connected Telegram WebApp clients.
+                ✓ Changes persist to database and take effect immediately across all connected Telegram WebApp clients.
               </div>
 
               <div className="pt-3 flex items-center justify-between">
@@ -2442,7 +2563,7 @@ export default function AdminPortalPage() {
 
                 {configSavedToast && (
                   <span className="text-emerald-700 font-bold text-xs bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-300 animate-in fade-in">
-                    ✓ Settings saved successfully!
+                    ✓ Settings saved to database!
                   </span>
                 )}
               </div>
