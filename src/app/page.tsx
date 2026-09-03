@@ -35,7 +35,7 @@ import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
 
 export default function MudraTubeApp() {
-  const { user: tgUser, initData, isTelegram, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
+  const { user: tgUser, initData, isTelegram, isReady, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
 
   // Application State
   const [currentTab, setCurrentTab] = useState<TabType>("tasks");
@@ -62,6 +62,8 @@ export default function MudraTubeApp() {
 
   // Sync Telegram User or Persistent Browser ID with Server & Firestore
   useEffect(() => {
+    if (!isReady) return;
+
     let actualId = "";
     let actualUsername = "";
     let actualFirstName = "";
@@ -108,25 +110,21 @@ export default function MudraTubeApp() {
         .then((res) => res.json())
         .then((data) => {
           if (data.success) {
+            if (data.config) setConfig(data.config);
             if (data.user) setUser(data.user);
             if (data.tasks) setTasks(data.tasks);
             if (data.packages) setPackages(data.packages);
             if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
-            if (data.withdrawals) {
-              setWithdrawals(data.withdrawals.filter((w: any) => w.user_id === actualId));
-            }
-            if (data.supportMessages) {
-              setSupportMessages(data.supportMessages.filter((m: any) => m.user_id === actualId));
-            }
-            if (data.config) setConfig(data.config);
-            if (data.total_users !== undefined) setTotalUsersCount(data.total_users);
+            if (data.withdrawals) setWithdrawals(data.withdrawals);
+            if (data.supportMessages) setSupportMessages(data.supportMessages);
+            if (typeof data.totalUsersCount === "number") setTotalUsersCount(data.totalUsersCount);
           }
         })
         .catch(() => {});
     };
 
     fetchUserData();
-    const interval = setInterval(fetchUserData, 5000);
+    const interval = setInterval(fetchUserData, 4000);
 
     if (isFirebaseConfigured) {
       const userDocRef = doc(db, "users", actualId);
@@ -249,15 +247,16 @@ export default function MudraTubeApp() {
     }
   };
 
-  // Submit Withdrawal Request
+  // Submit Withdrawal Request (in ₹ INR)
   const handleSubmitWithdrawal = async (
     method: "UPI" | "TON",
     payoutAddress: string,
-    coins: number
+    amount: number
   ): Promise<boolean> => {
     triggerHaptic("medium");
 
-    if (coins > user.balance || coins < config.min_withdrawal_coins) {
+    const minWdInr = config.min_withdrawal_inr ?? config.min_withdrawal_coins ?? 10;
+    if (amount > user.balance || amount < minWdInr) {
       triggerNotificationHaptic("error");
       return false;
     }
@@ -270,7 +269,8 @@ export default function MudraTubeApp() {
           action: "request_withdrawal",
           payload: {
             user_id: user.user_id,
-            coins,
+            amount_inr: amount,
+            coins: amount,
             method,
             payout_address: payoutAddress,
           },
@@ -502,6 +502,13 @@ export default function MudraTubeApp() {
               paymentMethods={paymentMethods}
               withdrawals={withdrawals}
               onSubmitWithdrawal={handleSubmitWithdrawal}
+              onSaveAddress={(method, addr) => {
+                if (method === "UPI") {
+                  handleUpdateSavedAddresses(addr, undefined);
+                } else {
+                  handleUpdateSavedAddresses(undefined, addr);
+                }
+              }}
             />
           </div>
         )}

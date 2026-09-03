@@ -9,6 +9,15 @@ import {
   logSecurityIncident,
 } from "@/lib/security";
 
+import crypto from "crypto";
+
+function safeCompare(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const hashA = crypto.createHash("sha256").update(a).digest();
+  const hashB = crypto.createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
+
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   const rateLimitKey = `admin_auth_${ip}`;
@@ -41,13 +50,13 @@ export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.json();
 
-    // 2. Suspicious Payload Detection (SQLi, XSS, etc.)
-    const suspicious = detectSuspiciousPatterns(rawBody);
+    // 2. Suspicious Username Payload Detection (prevent SQLi / injection while allowing special chars in password)
+    const suspicious = detectSuspiciousPatterns({ username: rawBody.username });
     if (suspicious.isSuspicious) {
       logSecurityIncident({
         type: "SUSPICIOUS_PAYLOAD",
         ip,
-        details: `Malicious payload detected during admin login: ${suspicious.reason}`,
+        details: `Malicious payload detected in admin username: ${suspicious.reason}`,
       });
       return NextResponse.json(
         { success: false, error: "Suspicious request payload detected and blocked." },
@@ -61,12 +70,21 @@ export async function POST(req: NextRequest) {
     const envUser = process.env.ADMIN_USERNAME;
     const envPass = process.env.ADMIN_PASSWORD;
 
-    // Strict validation
-    const isValid =
-      envUser && envPass
-        ? username === envUser && password === envPass
-        : (username === "admin29" && password === "admin123") ||
-          (username === "admin" && password === "mudratube2026");
+    let isValid = false;
+
+    if (envUser && envPass) {
+      isValid = safeCompare(username, envUser) && safeCompare(password, envPass);
+    } else if (process.env.NODE_ENV !== "production") {
+      // Development-only safe fallbacks
+      isValid =
+        (safeCompare(username, "admin29") && safeCompare(password, "admin123")) ||
+        (safeCompare(username, "admin") && safeCompare(password, "mudratube2026"));
+    } else {
+      return NextResponse.json(
+        { success: false, error: "Admin authentication is not configured in environment variables." },
+        { status: 500 }
+      );
+    }
 
     if (isValid) {
       // Clear failed login attempts counter on success

@@ -90,12 +90,20 @@ export function useTelegram() {
 
   const openLink = useCallback((url: string) => {
     if (typeof window !== "undefined") {
-      if (window.Telegram?.WebApp?.openTelegramLink && url.startsWith("https://t.me/")) {
-        window.Telegram.WebApp.openTelegramLink(url);
+      if (!url || typeof url !== "string") return;
+      const trimmed = url.trim();
+      if (!trimmed) return;
+
+      if (
+        window.Telegram?.WebApp?.openTelegramLink &&
+        (trimmed.startsWith("https://t.me/") || trimmed.startsWith("tg://") || trimmed.startsWith("t.me/"))
+      ) {
+        const fullTg = trimmed.startsWith("t.me/") ? `https://${trimmed}` : trimmed;
+        window.Telegram.WebApp.openTelegramLink(fullTg);
       } else if (window.Telegram?.WebApp?.openLink) {
-        window.Telegram.WebApp.openLink(url);
+        window.Telegram.WebApp.openLink(trimmed);
       } else {
-        window.open(url, "_blank");
+        window.open(trimmed, "_blank");
       }
     }
   }, []);

@@ -6,14 +6,18 @@ import { TelegramUser } from "@/types";
 // 1. IP & CLIENT IDENTIFICATION
 // ==========================================
 export function getClientIp(req: NextRequest): string {
-  const forwardedFor = req.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    return forwardedFor.split(",")[0].trim();
-  }
+  // Prioritize Cloudflare / trusted edge proxy headers over spoofable X-Forwarded-For
+  const cfIp = req.headers.get("cf-connecting-ip");
+  if (cfIp) return cfIp.trim();
+
   const realIp = req.headers.get("x-real-ip");
   if (realIp) return realIp.trim();
-  const cfConnectingIp = req.headers.get("cf-connecting-ip");
-  if (cfConnectingIp) return cfConnectingIp.trim();
+
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const parts = forwarded.split(",");
+    return parts[0].trim();
+  }
   return "127.0.0.1";
 }
 
@@ -247,16 +251,16 @@ export function validateUpiId(upi: string): boolean {
 }
 
 /**
- * Validate TON Address (EQ/UQ format or friendly hex)
+ * Validate TON Address (EQ/UQ/kQ/0Q format or raw hex)
  */
 export function validateTonAddress(ton: string): boolean {
   if (!ton || typeof ton !== "string") return false;
   const cleanTon = ton.trim();
-  // TON userfriendly base64url addresses start with EQ or UQ and are 48 chars
-  // Raw addresses format: 0:... or -1:...
-  const friendlyRegex = /^(EQ|UQ)[a-zA-Z0-9_-]{46}$/;
+  // TON userfriendly base64url addresses start with EQ, UQ, kQ, 0Q and are 48 chars
+  // Raw addresses format: 0:... or -1:... with 64 hex chars
+  const friendlyRegex = /^(EQ|UQ|kQ|0Q)[a-zA-Z0-9_\-]{46}$/;
   const rawRegex = /^(-1|0):[a-fA-F0-9]{64}$/;
-  return friendlyRegex.test(cleanTon) || rawRegex.test(cleanTon) || (cleanTon.length >= 30 && cleanTon.length <= 80);
+  return friendlyRegex.test(cleanTon) || rawRegex.test(cleanTon);
 }
 
 /**
@@ -344,17 +348,27 @@ export function verifyTelegramInitData(
     const hashBuf = Buffer.from(hash, "hex");
     const calcBuf = Buffer.from(calculatedHash, "hex");
 
-    if (hashBuf.length !== calcBuf.length || !crypto.timingSafeEqual(hashBuf, calcBuf)) {
+    // Constant-time comparison using fixed-length SHA-256 digests to prevent timing attacks
+    const hashDigest = crypto.createHash("sha256").update(Buffer.from(hash, "hex")).digest();
+    const calcDigest = crypto.createHash("sha256").update(Buffer.from(calculatedHash, "hex")).digest();
+
+    if (hash.length !== calculatedHash.length || !crypto.timingSafeEqual(hashDigest, calcDigest)) {
       return { valid: false, error: "Invalid signature: data tampering detected" };
     }
 
-    // Check expiration (auth_date): Reject data older than 24 hours to prevent replay attacks
+    // Check expiration (auth_date): Reject data older than 24 hours or in future > 60s
     const authDateStr = params.get("auth_date");
     const authDate = authDateStr ? parseInt(authDateStr, 10) : 0;
     const now = Math.floor(Date.now() / 1000);
 
-    if (authDate && now - authDate > 86400) {
+    if (!authDate || Number.isNaN(authDate)) {
+      return { valid: false, error: "Missing or invalid auth_date in initData" };
+    }
+    if (now - authDate > 86400) {
       return { valid: false, error: "InitData has expired (replay attack protection)" };
+    }
+    if (authDate > now + 60) {
+      return { valid: false, error: "InitData timestamp is in the future" };
     }
 
     // Extract user profile
@@ -414,16 +428,16 @@ export function verifyAdminSessionToken(token: string | null | undefined): {
 
   const [header, payload, signature] = parts;
 
-  // Verify HMAC signature
+  // Verify HMAC signature with constant-time digest comparison
   const expectedSignature = crypto
     .createHmac("sha256", ADMIN_SECRET)
     .update(`${header}.${payload}`)
     .digest("base64url");
 
-  const sigBuf = Buffer.from(signature);
-  const expBuf = Buffer.from(expectedSignature);
+  const sigDigest = crypto.createHash("sha256").update(Buffer.from(signature)).digest();
+  const expDigest = crypto.createHash("sha256").update(Buffer.from(expectedSignature)).digest();
 
-  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+  if (signature.length !== expectedSignature.length || !crypto.timingSafeEqual(sigDigest, expDigest)) {
     return { valid: false, error: "Invalid admin token signature" };
   }
 
@@ -431,7 +445,7 @@ export function verifyAdminSessionToken(token: string | null | undefined): {
     const decodedPayload = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
     const now = Math.floor(Date.now() / 1000);
 
-    if (decodedPayload.exp && decodedPayload.exp < now) {
+    if (typeof decodedPayload.exp !== "number" || decodedPayload.exp < now) {
       return { valid: false, error: "Admin session has expired" };
     }
 

@@ -9,12 +9,11 @@ import {
 } from "@/types";
 
 export const initialConfig: GlobalConfig = {
-  min_withdrawal_coins: 300,
-  coins_per_inr: 300,
-  coins_per_ton: 50000,
-  default_task_reward: 50,
-  admin_profit_cut_percent: 60, // 60% Admin, 40% User Pool
-  min_rate_per_member_inr: 2.0,  // e.g. ₹2.00 per member minimum floor
+  min_withdrawal_inr: 10,        // Minimum ₹10 threshold for withdrawal
+  default_task_reward_inr: 1.50, // Direct ₹1.50 per channel task
+  ton_rate_inr: 500,             // ₹500 = 1 TON
+  admin_profit_cut_percent: 60,  // 60% Admin, 40% User Pool
+  min_rate_per_member_inr: 2.0,  // ₹2.00 per member minimum floor
   admin_upi_id: "admin@paytm",
   admin_telegram_handle: "@admin_mudratube",
   bot_username: "@MudraTube_bot",
@@ -25,6 +24,12 @@ export const initialConfig: GlobalConfig = {
   custom_service_title: "need custom solution telegram bot,web,App?? contect here..🚀💰",
   custom_service_telegram: "@amxnbixnoe",
   custom_total_users_count: 0,
+
+  // Backward compatibility aliases
+  min_withdrawal_coins: 10,
+  coins_per_inr: 1,
+  coins_per_ton: 500,
+  default_task_reward: 1.50,
 };
 
 export const initialTasks: ChannelTask[] = [];

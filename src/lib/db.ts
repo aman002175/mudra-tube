@@ -34,18 +34,16 @@ export interface DatabaseState {
 const LOCAL_DB_PATH = path.join(process.cwd(), "data", "database.json");
 const TMP_DB_PATH = path.join("/tmp", "mudratube_db.json");
 
-function getStoragePath(): string {
-  try {
-    const dir = path.join(process.cwd(), "data");
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(path.join(dir, ".test"), "ok");
-    fs.unlinkSync(path.join(dir, ".test"));
-    return LOCAL_DB_PATH;
-  } catch (e) {
-    return TMP_DB_PATH;
+// Resolve storage path once at boot to eliminate concurrent unlink race conditions
+let RESOLVED_STORAGE_PATH: string = LOCAL_DB_PATH;
+try {
+  const dir = path.join(process.cwd(), "data");
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
+  RESOLVED_STORAGE_PATH = LOCAL_DB_PATH;
+} catch {
+  RESOLVED_STORAGE_PATH = TMP_DB_PATH;
 }
 
 declare global {
@@ -58,36 +56,43 @@ function getDefaultState(): DatabaseState {
     withdrawals: [],
     promotions: [],
     supportMessages: [],
-    tasks: [...initialTasks],
-    paymentMethods: [...initialPaymentMethods],
-    packages: [...initialPackages],
+    tasks: JSON.parse(JSON.stringify(initialTasks)),
+    paymentMethods: JSON.parse(JSON.stringify(initialPaymentMethods)),
+    packages: JSON.parse(JSON.stringify(initialPackages)),
     config: { ...initialConfig },
   };
 }
 
 /**
- * Load database state from disk or initialize with defaults
+ * Load database state from disk or backup with defaults
  */
 export function loadDatabase(): DatabaseState {
   if (global.__mudratube_db_state) {
     return global.__mudratube_db_state;
   }
 
-  const paths = [getStoragePath(), TMP_DB_PATH, LOCAL_DB_PATH];
+  const paths = [
+    RESOLVED_STORAGE_PATH,
+    `${RESOLVED_STORAGE_PATH}.bak`,
+    TMP_DB_PATH,
+    `${TMP_DB_PATH}.bak`,
+    LOCAL_DB_PATH,
+  ];
+
   for (const filePath of paths) {
     try {
       if (fs.existsSync(filePath)) {
         const raw = fs.readFileSync(filePath, "utf-8");
-        if (raw.trim()) {
+        if (raw && raw.trim()) {
           const parsed = JSON.parse(raw);
           global.__mudratube_db_state = {
             users: parsed.users || {},
             withdrawals: parsed.withdrawals || [],
             promotions: parsed.promotions || [],
             supportMessages: parsed.supportMessages || [],
-            tasks: parsed.tasks?.length > 0 ? parsed.tasks : [...initialTasks],
-            paymentMethods: parsed.paymentMethods?.length > 0 ? parsed.paymentMethods : [...initialPaymentMethods],
-            packages: parsed.packages?.length > 0 ? parsed.packages : [...initialPackages],
+            tasks: parsed.tasks?.length > 0 ? parsed.tasks : JSON.parse(JSON.stringify(initialTasks)),
+            paymentMethods: parsed.paymentMethods?.length > 0 ? parsed.paymentMethods : JSON.parse(JSON.stringify(initialPaymentMethods)),
+            packages: parsed.packages?.length > 0 ? parsed.packages : JSON.parse(JSON.stringify(initialPackages)),
             config: { ...initialConfig, ...(parsed.config || {}) },
           };
           return global.__mudratube_db_state;
@@ -105,19 +110,29 @@ export function loadDatabase(): DatabaseState {
 }
 
 /**
- * Save database state to disk synchronously and trigger async cloud backup
+ * Save database state to disk atomically (.tmp -> rename) with .bak safeguard
  */
 export function saveDatabase(state: DatabaseState): void {
   global.__mudratube_db_state = state;
 
   const dataString = JSON.stringify(state, null, 2);
-  const targetPath = getStoragePath();
+  const targetPath = RESOLVED_STORAGE_PATH;
+  const tmpPath = `${targetPath}.tmp`;
+  const bakPath = `${targetPath}.bak`;
 
   try {
-    fs.writeFileSync(targetPath, dataString, "utf-8");
+    fs.writeFileSync(tmpPath, dataString, "utf-8");
+    if (fs.existsSync(targetPath)) {
+      try {
+        fs.copyFileSync(targetPath, bakPath);
+      } catch {}
+    }
+    fs.renameSync(tmpPath, targetPath);
   } catch (err) {
     try {
-      fs.writeFileSync(TMP_DB_PATH, dataString, "utf-8");
+      const tmpBackup = `${TMP_DB_PATH}.tmp`;
+      fs.writeFileSync(tmpBackup, dataString, "utf-8");
+      fs.renameSync(tmpBackup, TMP_DB_PATH);
     } catch (e2) {
       console.error("Critical: Failed to save database to disk:", e2);
     }

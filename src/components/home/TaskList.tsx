@@ -18,8 +18,18 @@ export const TaskList: React.FC<TaskListProps> = ({
   onVerifyTask,
   onOpenChannel,
 }) => {
-  // Track state for tasks that have been opened/joined by the user
-  const [openedTaskIds, setOpenedTaskIds] = useState<Record<string, boolean>>({});
+  // Track state for tasks that have been opened/joined by the user (persisted across tab switches)
+  const [openedTaskIds, setOpenedTaskIds] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = sessionStorage.getItem("mudratube_opened_tasks");
+        return stored ? JSON.parse(stored) : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  });
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
   // Guarantee that pinned/top sponsor tasks appear first
@@ -30,7 +40,16 @@ export const TaskList: React.FC<TaskListProps> = ({
   });
 
   const handleJoinClick = (task: ChannelTask) => {
-    setOpenedTaskIds((prev) => ({ ...prev, [task.id]: true }));
+    if (!task.channel_link) return;
+    setOpenedTaskIds((prev) => {
+      const updated = { ...prev, [task.id]: true };
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.setItem("mudratube_opened_tasks", JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
     onOpenChannel(task.channel_link);
   };
 
@@ -62,8 +81,8 @@ export const TaskList: React.FC<TaskListProps> = ({
             Channel Join Tasks
           </h3>
         </div>
-        <span className="text-[11px] font-bold text-sky-700/80 bg-sky-100/80 px-2.5 py-0.5 rounded-full border border-sky-200/60">
-          Instant Coin Rewards
+        <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-full border border-emerald-300/60">
+          Instant Cash Rewards (₹ INR)
         </span>
       </div>
 
@@ -82,16 +101,17 @@ export const TaskList: React.FC<TaskListProps> = ({
       ) : (
         <div className="space-y-3">
           {sortedTasks.map((task) => {
-            const isDone = completedTaskIds.includes(task.id);
+            const isDone = (completedTaskIds || []).includes(task.id);
             const hasJoined = openedTaskIds[task.id];
             const isVerifying = verifyingId === task.id;
             const isTopSpot = Boolean(task.is_pinned);
 
-            const target = task.target_members || 1000;
+            const target = Math.max(1, task.target_members || 1000);
             const joined = task.joined_count || 0;
             const progressPct = Math.min(100, Math.round((joined / target) * 100));
             const spotsLeft = Math.max(0, target - joined);
             const isTargetReached = joined >= target;
+            const rewardInr = Number(task.reward_inr ?? task.reward_coins ?? 1.50).toFixed(2);
 
             return (
               <div
@@ -121,6 +141,10 @@ export const TaskList: React.FC<TaskListProps> = ({
                           src={task.avatar_url}
                           alt={task.title}
                           className="w-full h-full object-cover rounded-[14px]"
+                          onError={(e) => {
+                            // Fallback to placeholder if avatar fails to load
+                            (e.target as HTMLElement).style.display = "none";
+                          }}
                         />
                       ) : (
                         <div className="w-full h-full rounded-[14px] bg-sky-100 flex items-center justify-center text-sky-700 font-black">
@@ -139,10 +163,10 @@ export const TaskList: React.FC<TaskListProps> = ({
                     </div>
                   </div>
 
-                  {/* Action Button & Reward Badge */}
+                  {/* Action Button & Direct ₹ INR Reward Badge */}
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <span className="text-[11px] font-black text-amber-600 bg-amber-100/80 border border-amber-300/50 px-2 py-0.5 rounded-full">
-                      +{task.reward_coins} Coins
+                    <span className="text-[11px] font-black text-emerald-700 bg-emerald-100/90 border border-emerald-300/60 px-2.5 py-0.5 rounded-full">
+                      +₹{rewardInr}
                     </span>
 
                     {isDone ? (

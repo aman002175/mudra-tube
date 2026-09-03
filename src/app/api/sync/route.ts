@@ -375,32 +375,33 @@ export async function POST(request: NextRequest) {
         }
 
         // CRITICAL SECURITY: SERVER-AUTHORITATIVE REWARD CALCULATION
-        // NEVER trust payload.reward_coins from client!
+        // NEVER trust payload.reward_coins or payload.reward_inr from client!
         const task = store.tasks.find((t) => t.id === taskId);
-        let rewardCoins = store.config.default_task_reward || 50;
+        let rewardInr = store.config.default_task_reward_inr ?? store.config.default_task_reward ?? 1.50;
 
         if (task) {
           if (task.status !== "active") {
             return NextResponse.json({ success: false, error: "This task is no longer active." }, { status: 400 });
           }
-          rewardCoins = task.reward_coins;
+          rewardInr = task.reward_inr ?? task.reward_coins ?? rewardInr;
           task.joined_count = (task.joined_count || 0) + 1;
           if (task.joined_count >= task.target_members) {
             task.status = "completed";
           }
         }
 
-        // Atomically update user balance
+        // Atomically update user balance in ₹ INR
+        rewardInr = Math.round(Number(rewardInr) * 100) / 100;
         user.completed_tasks.push(taskId);
-        user.balance += rewardCoins;
-        user.total_earned += rewardCoins;
+        user.balance = Math.round((user.balance + rewardInr) * 100) / 100;
+        user.total_earned = Math.round((user.total_earned + rewardInr) * 100) / 100;
         persistStore(store);
 
-        return NextResponse.json({ success: true, user, rewardAwarded: rewardCoins });
+        return NextResponse.json({ success: true, user, rewardAwarded: rewardInr });
       }
 
       // ----------------------------------------------------
-      // 3. User Requests Withdrawal (Anti-Double-Spend & Strict Validation)
+      // 3. User Requests Withdrawal (Anti-Double-Spend & Direct ₹ INR Validation)
       // ----------------------------------------------------
       case "request_withdrawal": {
         const userVal = validateUserId(payload.user_id);
@@ -447,22 +448,18 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "Account suspended." }, { status: 403 });
         }
 
-        // STRICT COIN VALIDATION (Prevents negative numbers, NaN, floating point exploits)
-        const coinVal = validateInteger(payload.coins, store.config.min_withdrawal_coins, 10_000_000);
-        if (!coinVal.valid) {
-          logSecurityIncident({
-            type: "TAMPERING_ATTEMPT",
-            ip,
-            userId,
-            details: `Invalid or negative coins in withdrawal attempt: ${payload.coins}`,
-          });
-          return NextResponse.json({ success: false, error: coinVal.error }, { status: 400 });
+        // DIRECT ₹ INR WITHDRAWAL AMOUNT VALIDATION
+        const minWdInr = store.config.min_withdrawal_inr ?? store.config.min_withdrawal_coins ?? 10;
+        const requestedAmount = Number(payload.amount_inr ?? payload.coins ?? 0);
+        if (isNaN(requestedAmount) || requestedAmount < minWdInr) {
+          return NextResponse.json(
+            { success: false, error: `Minimum withdrawal is ₹${minWdInr}` },
+            { status: 400 }
+          );
         }
-        const coins = coinVal.value;
 
-        // Balance Check on Server
-        if (user.balance < coins) {
-          return NextResponse.json({ success: false, error: "Insufficient coin balance" }, { status: 400 });
+        if (requestedAmount > user.balance) {
+          return NextResponse.json({ success: false, error: "Insufficient account balance" }, { status: 400 });
         }
 
         // Method & Payout Address Validation
@@ -485,12 +482,10 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // CRITICAL: CALCULATE INR VALUE ON SERVER (NEVER TRUST CLIENT AMOUNT, PREVENT ZERO DIVISION)
-        const coinsPerInr = Math.max(1, store.config.coins_per_inr || 300);
-        const amountInr = Number((coins / coinsPerInr).toFixed(2));
+        const cleanAmountInr = Math.round(requestedAmount * 100) / 100;
 
-        // Deduct balance atomically
-        user.balance -= coins;
+        // Deduct balance atomically in ₹ INR
+        user.balance = Math.round((user.balance - cleanAmountInr) * 100) / 100;
 
         const newWithdrawal: WithdrawalRequest = {
           id: `wd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -498,8 +493,8 @@ export async function POST(request: NextRequest) {
           username: user.username || userId,
           method,
           payout_address: cleanAddress,
-          coins,
-          amount_inr: amountInr,
+          coins: cleanAmountInr,
+          amount_inr: cleanAmountInr,
           status: "pending",
           refunded: false,
           requested_at: new Date().toISOString(),
@@ -641,6 +636,26 @@ export async function POST(request: NextRequest) {
       // ADMIN-PROTECTED ACTIONS (Guarded by token verification above)
       // ====================================================
 
+      // 5b. Admin Marks Support Messages as Read
+      case "admin_mark_messages_read": {
+        const targetUserId = sanitizeString(payload.user_id, 64);
+        let updatedCount = 0;
+        for (const m of store.supportMessages) {
+          if (m.user_id === targetUserId && !m.read) {
+            m.read = true;
+            updatedCount++;
+          }
+        }
+        if (updatedCount > 0) {
+          persistStore(store);
+        }
+        return NextResponse.json({ success: true, updatedCount });
+      }
+
+      // ====================================================
+      // ADMIN-PROTECTED ACTIONS (Guarded by token verification above)
+      // ====================================================
+
       // 6. Admin Resolves Withdrawal
       case "admin_resolve_withdrawal": {
         const { id, status, refund, utr_number } = payload;
@@ -663,15 +678,17 @@ export async function POST(request: NextRequest) {
         if (utr_number) withdrawal.utr_number = sanitizeString(utr_number, 64);
         withdrawal.processed_at = new Date().toISOString();
 
+        const amountToTransfer = withdrawal.amount_inr ?? withdrawal.coins ?? 0;
+
         if (status === "completed") {
           const user = store.users.get(withdrawal.user_id);
           if (user) {
-            user.total_withdrawn += withdrawal.coins;
+            user.total_withdrawn = Math.round((user.total_withdrawn + amountToTransfer) * 100) / 100;
           }
         } else if (status === "rejected" && refund && !withdrawal.refunded) {
           const user = store.users.get(withdrawal.user_id);
           if (user) {
-            user.balance += withdrawal.coins;
+            user.balance = Math.round((user.balance + amountToTransfer) * 100) / 100;
             withdrawal.refunded = true;
           }
         }
@@ -680,15 +697,15 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, withdrawal });
       }
 
-      // 7. Admin Adjusts User Balance
+      // 7. Admin Adjusts User Balance (in ₹ INR)
       case "admin_adjust_balance": {
         const userVal = validateUserId(payload.user_id);
         if (!userVal.valid) {
           return NextResponse.json({ success: false, error: "Invalid user_id" }, { status: 400 });
         }
         const delta = Number(payload.delta);
-        if (!Number.isFinite(delta) || !Number.isInteger(delta)) {
-          return NextResponse.json({ success: false, error: "Delta must be an integer" }, { status: 400 });
+        if (!Number.isFinite(delta)) {
+          return NextResponse.json({ success: false, error: "Delta must be a valid number" }, { status: 400 });
         }
 
         const user = store.users.get(userVal.value);
@@ -696,15 +713,16 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "User not found" }, { status: 404 });
         }
 
-        user.balance = Math.max(0, user.balance + delta);
-        if (delta > 0) {
-          user.total_earned += delta;
+        const roundedDelta = Math.round(delta * 100) / 100;
+        user.balance = Math.max(0, Math.round((user.balance + roundedDelta) * 100) / 100);
+        if (roundedDelta > 0) {
+          user.total_earned = Math.round((user.total_earned + roundedDelta) * 100) / 100;
         }
         persistStore(store);
         return NextResponse.json({ success: true, user });
       }
 
-      // 8. Admin Approves Channel Promotion Order
+      // 8. Admin Approves Channel Promotion Order (Creates Task with Direct ₹ INR Reward)
       case "admin_approve_promotion": {
         const cleanId = sanitizeString(payload.id, 64);
         const promo = store.promotions.find((p) => p.id === cleanId);
@@ -714,11 +732,12 @@ export async function POST(request: NextRequest) {
 
         promo.status = "approved";
 
-        const adminRevenue = Math.round(promo.price_inr * (store.config.admin_profit_cut_percent / 100));
-        const userPool = promo.price_inr - adminRevenue;
-        const rewardCoins = Math.max(
-          10,
-          Math.round((userPool / promo.target_members) * store.config.coins_per_inr)
+        // Calculate split using slider cut or global config cut
+        const adminCutPercent = Number(payload.admin_profit_cut_percent) || store.config.admin_profit_cut_percent || 60;
+        const userPoolInr = Math.round(promo.price_inr * (1 - adminCutPercent / 100));
+        const rewardPerMemberInr = Math.max(
+          0.1,
+          Math.round((userPoolInr / promo.target_members) * 100) / 100
         );
 
         const liveTask: ChannelTask = {
@@ -726,7 +745,8 @@ export async function POST(request: NextRequest) {
           title: promo.channel_title || promo.channel_username,
           username: promo.channel_username,
           channel_link: promo.channel_link,
-          reward_coins: rewardCoins,
+          reward_inr: rewardPerMemberInr,
+          reward_coins: rewardPerMemberInr,
           target_members: promo.target_members,
           joined_count: 0,
           is_pinned: promo.package_id === "pkg_growth" || promo.package_id === "pkg_vip",
@@ -739,9 +759,26 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, task: liveTask, promotion: promo });
       }
 
-      // 9. Admin Updates Config
+      // 8b. Admin Rejects Channel Promotion Order
+      case "admin_reject_promotion": {
+        const cleanId = sanitizeString(payload.id, 64);
+        const promo = store.promotions.find((p) => p.id === cleanId);
+        if (!promo) {
+          return NextResponse.json({ success: false, error: "Promotion not found" }, { status: 404 });
+        }
+
+        promo.status = "rejected";
+        promo.rejection_reason = sanitizeString(payload.reason || "Rejected by administrator", 256);
+        persistStore(store);
+        return NextResponse.json({ success: true, promotion: promo });
+      }
+
+      // 9. Admin Updates Config (Direct ₹ INR fields supported)
       case "admin_update_config": {
         const allowedKeys = [
+          "min_withdrawal_inr",
+          "default_task_reward_inr",
+          "ton_rate_inr",
           "min_withdrawal_coins",
           "coins_per_inr",
           "coins_per_ton",
@@ -762,10 +799,20 @@ export async function POST(request: NextRequest) {
 
         for (const key of Object.keys(payload)) {
           if (allowedKeys.includes(key)) {
-            if (key === "coins_per_inr" || key === "min_withdrawal_coins" || key === "default_task_reward") {
+            if (
+              key === "min_withdrawal_inr" ||
+              key === "default_task_reward_inr" ||
+              key === "ton_rate_inr" ||
+              key === "coins_per_inr" ||
+              key === "min_withdrawal_coins" ||
+              key === "default_task_reward"
+            ) {
               const num = Number(payload[key]);
-              if (Number.isFinite(num) && num >= 1) {
+              if (Number.isFinite(num) && num > 0) {
                 (store.config as any)[key] = num;
+                // Sync aliases
+                if (key === "min_withdrawal_inr") store.config.min_withdrawal_coins = num;
+                if (key === "default_task_reward_inr") store.config.default_task_reward = num;
               }
             } else if (key === "admin_profit_cut_percent") {
               const cut = Number(payload[key]);

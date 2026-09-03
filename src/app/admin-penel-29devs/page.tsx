@@ -79,7 +79,8 @@ export default function AdminPortalPage() {
   const [userSearch, setUserSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
-  const [coinAdjustment, setCoinAdjustment] = useState<number>(100);
+  const [coinAdjustment, setCoinAdjustment] = useState<number>(10);
+  const [adjustAmountInput, setAdjustAmountInput] = useState<string>("10");
 
   // New task form state
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -115,10 +116,9 @@ export default function AdminPortalPage() {
 
   // Dedicated local input state for Settings tab (prevents polling resets & enables free backspacing)
   const [settingsInputs, setSettingsInputs] = useState({
-    min_withdrawal_coins: String(initialConfig.min_withdrawal_coins ?? 300),
-    coins_per_inr: String(initialConfig.coins_per_inr ?? 300),
-    coins_per_ton: String(initialConfig.coins_per_ton ?? 50000),
-    default_task_reward: String(initialConfig.default_task_reward ?? 50),
+    min_withdrawal_inr: String(initialConfig.min_withdrawal_inr ?? initialConfig.min_withdrawal_coins ?? 10),
+    ton_rate_inr: String(initialConfig.ton_rate_inr ?? 500),
+    default_task_reward_inr: String(initialConfig.default_task_reward_inr ?? initialConfig.default_task_reward ?? 1.50),
     min_rate_per_member_inr: String(initialConfig.min_rate_per_member_inr ?? 2.0),
     admin_profit_cut_percent: initialConfig.admin_profit_cut_percent ?? 60,
     admin_upi_id: initialConfig.admin_upi_id || "",
@@ -217,10 +217,9 @@ export default function AdminPortalPage() {
               setConfig(data.config);
               if (currentSection !== "settings" && !isSettingsDirty) {
                 setSettingsInputs({
-                  min_withdrawal_coins: String(data.config.min_withdrawal_coins ?? 300),
-                  coins_per_inr: String(data.config.coins_per_inr ?? 300),
-                  coins_per_ton: String(data.config.coins_per_ton ?? 50000),
-                  default_task_reward: String(data.config.default_task_reward ?? 50),
+                  min_withdrawal_inr: String(data.config.min_withdrawal_inr ?? data.config.min_withdrawal_coins ?? 10),
+                  ton_rate_inr: String(data.config.ton_rate_inr ?? 500),
+                  default_task_reward_inr: String(data.config.default_task_reward_inr ?? data.config.default_task_reward ?? 1.50),
                   min_rate_per_member_inr: String(data.config.min_rate_per_member_inr ?? 2.0),
                   admin_profit_cut_percent: data.config.admin_profit_cut_percent ?? 60,
                   admin_upi_id: data.config.admin_upi_id || "",
@@ -270,11 +269,19 @@ export default function AdminPortalPage() {
       .catch(() => {});
   };
 
-  const handleResolveWithdrawal = (
+  const handleResolveWithdrawal = async (
     id: string,
     newStatus: "completed" | "rejected",
     refund: boolean = false
   ) => {
+    let utr: string | undefined = undefined;
+    if (newStatus === "completed") {
+      const entered = window.prompt("Enter Bank UTR / Transaction Reference number (optional):");
+      if (entered !== null && entered.trim()) {
+        utr = entered.trim();
+      }
+    }
+
     setWithdrawals((prev) =>
       prev.map((w) => {
         if (w.id === id) {
@@ -282,6 +289,7 @@ export default function AdminPortalPage() {
             ...w,
             status: newStatus,
             refunded: refund,
+            utr_number: utr || w.utr_number,
             processed_at: new Date().toISOString(),
           };
         }
@@ -290,22 +298,27 @@ export default function AdminPortalPage() {
     );
 
     // Sync with server
-    adminFetch("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({
-        action: "admin_resolve_withdrawal",
-        payload: { id, status: newStatus, refund },
-      }),
-    }).catch(() => {});
+    try {
+      await adminFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "admin_resolve_withdrawal",
+          payload: { id, status: newStatus, refund, utr_number: utr },
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to update withdrawal status on server:", err);
+    }
 
-    // If refund requested, restore user balance
+    // If refund requested, restore user balance in ₹ INR
     if (refund) {
       const targetWithdrawal = withdrawals.find((w) => w.id === id);
       if (targetWithdrawal) {
+        const refundAmt = targetWithdrawal.amount_inr ?? targetWithdrawal.coins ?? 0;
         setUsersList((prev) =>
           prev.map((u) =>
             u.user_id === targetWithdrawal.user_id
-              ? { ...u, balance: u.balance + targetWithdrawal.coins }
+              ? { ...u, balance: Math.round((u.balance + refundAmt) * 100) / 100 }
               : u
           )
         );
@@ -313,27 +326,35 @@ export default function AdminPortalPage() {
     }
   };
 
-  const handleAdjustBalance = (userId: string, delta: number) => {
+  const handleAdjustBalance = async (userId: string, delta: number) => {
+    const roundedDelta = Math.round(delta * 100) / 100;
     setUsersList((prev) =>
       prev.map((u) =>
         u.user_id === userId
           ? {
               ...u,
-              balance: Math.max(0, u.balance + delta),
-              total_earned: delta > 0 ? u.total_earned + delta : u.total_earned,
+              balance: Math.max(0, Math.round((u.balance + roundedDelta) * 100) / 100),
+              total_earned:
+                roundedDelta > 0
+                  ? Math.round((u.total_earned + roundedDelta) * 100) / 100
+                  : u.total_earned,
             }
           : u
       )
     );
 
     // Sync with server
-    adminFetch("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({
-        action: "admin_adjust_balance",
-        payload: { user_id: userId, delta },
-      }),
-    }).catch(() => {});
+    try {
+      await adminFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "admin_adjust_balance",
+          payload: { user_id: userId, delta: roundedDelta },
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to adjust balance on server:", err);
+    }
 
     setSelectedUserForEdit(null);
   };
@@ -366,12 +387,15 @@ export default function AdminPortalPage() {
     e.preventDefault();
     if (!newTaskTitle || !newTaskLink) return;
 
+    const rewardInrVal = Math.max(0.1, parseFloat(String(newTaskReward)) || 1.50);
+
     const newTask: ChannelTask = {
       id: `task_${Date.now()}`,
       title: newTaskTitle,
       username: newTaskUsername.startsWith("@") ? newTaskUsername : `@${newTaskUsername}`,
       channel_link: newTaskLink,
-      reward_coins: Number(newTaskReward) || 50,
+      reward_inr: rewardInrVal,
+      reward_coins: rewardInrVal,
       target_members: 1000,
       joined_count: 0,
       is_pinned: newTaskIsPinned,
@@ -384,7 +408,7 @@ export default function AdminPortalPage() {
     setNewTaskTitle("");
     setNewTaskUsername("");
     setNewTaskLink("");
-    setNewTaskReward(50);
+    setNewTaskReward(1.50);
     setNewTaskIsPinned(false);
     setNewTaskBadgeLabel("TOP #1 SPONSOR");
   };
@@ -490,24 +514,25 @@ export default function AdminPortalPage() {
   };
 
   const handleApprovePromotion = (req: PromotionRequest) => {
-    // Profit Calculation Formula:
+    // Direct ₹ INR Reward Formula:
     // adminProfit = price_inr * (adminProfitCut / 100)
     // userPool = price_inr - adminProfit
-    // coinsPerUser = (userPool / target_members) * coins_per_inr
+    // rewardPerMember = userPool / target_members
     const userPoolInr = req.price_inr * (1 - adminProfitCut / 100);
-    const coinsPerUser = Math.max(
-      10,
-      Math.round((userPoolInr / req.target_members) * config.coins_per_inr)
+    const rewardPerMemberInr = Math.max(
+      0.1,
+      Math.round((userPoolInr / req.target_members) * 100) / 100
     );
 
-    const isTopSpot = req.package_id?.includes("growth") || req.package_id?.includes("pro");
+    const isTopSpot = req.package_id?.includes("growth") || req.package_id?.includes("pro") || req.package_id === "pkg_vip";
 
     const newLiveTask: ChannelTask = {
       id: `task_${Date.now()}`,
       title: req.channel_title || req.channel_username,
       username: req.channel_username.startsWith("@") ? req.channel_username : `@${req.channel_username}`,
       channel_link: req.channel_link,
-      reward_coins: coinsPerUser,
+      reward_inr: rewardPerMemberInr,
+      reward_coins: rewardPerMemberInr,
       target_members: req.target_members,
       joined_count: 0,
       is_pinned: isTopSpot,
@@ -526,23 +551,36 @@ export default function AdminPortalPage() {
       method: "POST",
       body: JSON.stringify({
         action: "admin_approve_promotion",
-        payload: { id: req.id },
+        payload: { id: req.id, admin_profit_cut_percent: adminProfitCut },
       }),
     }).catch(() => {});
   };
 
-  const handleRejectPromotion = (id: string, reason?: string) => {
+  const handleRejectPromotion = async (id: string, reason?: string) => {
+    const finalReason = reason || "Payment or bot administrator verification failed";
     setPromotionRequests((prev) =>
       prev.map((r) =>
         r.id === id
           ? {
               ...r,
               status: "rejected",
-              rejection_reason: reason || "Payment or bot administrator verification failed",
+              rejection_reason: finalReason,
             }
           : r
       )
     );
+
+    try {
+      await adminFetch("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "admin_reject_promotion",
+          payload: { id, reason: finalReason },
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to reject promotion on server:", err);
+    }
   };
 
   // 3. Payment methods handlers & Persistence
@@ -660,12 +698,17 @@ export default function AdminPortalPage() {
 
   const handleSaveConfig = async (customCfg?: Partial<GlobalConfig>) => {
     setConfigSaving(true);
+    const parsedMinWd = Math.max(1, parseFloat(settingsInputs.min_withdrawal_inr) || 10);
+    const parsedTonRate = Math.max(1, parseFloat(settingsInputs.ton_rate_inr) || 500);
+    const parsedReward = Math.max(0.1, parseFloat(settingsInputs.default_task_reward_inr) || 1.50);
+
     const targetConfig: GlobalConfig = {
       ...config,
-      min_withdrawal_coins: Math.max(1, parseInt(settingsInputs.min_withdrawal_coins) || 300),
-      coins_per_inr: Math.max(1, parseInt(settingsInputs.coins_per_inr) || 300),
-      coins_per_ton: Math.max(1, parseInt(settingsInputs.coins_per_ton) || 50000),
-      default_task_reward: Math.max(1, parseInt(settingsInputs.default_task_reward) || 50),
+      min_withdrawal_inr: parsedMinWd,
+      min_withdrawal_coins: parsedMinWd,
+      ton_rate_inr: parsedTonRate,
+      default_task_reward_inr: parsedReward,
+      default_task_reward: parsedReward,
       min_rate_per_member_inr: Math.max(0.1, parseFloat(settingsInputs.min_rate_per_member_inr) || 2.0),
       admin_profit_cut_percent: Number(settingsInputs.admin_profit_cut_percent) || 60,
       admin_upi_id: settingsInputs.admin_upi_id.trim(),
@@ -692,10 +735,9 @@ export default function AdminPortalPage() {
         setConfig(d.config);
         setIsSettingsDirty(false);
         setSettingsInputs({
-          min_withdrawal_coins: String(d.config.min_withdrawal_coins ?? 300),
-          coins_per_inr: String(d.config.coins_per_inr ?? 300),
-          coins_per_ton: String(d.config.coins_per_ton ?? 50000),
-          default_task_reward: String(d.config.default_task_reward ?? 50),
+          min_withdrawal_inr: String(d.config.min_withdrawal_inr ?? d.config.min_withdrawal_coins ?? 10),
+          ton_rate_inr: String(d.config.ton_rate_inr ?? 500),
+          default_task_reward_inr: String(d.config.default_task_reward_inr ?? d.config.default_task_reward ?? 1.50),
           min_rate_per_member_inr: String(d.config.min_rate_per_member_inr ?? 2.0),
           admin_profit_cut_percent: d.config.admin_profit_cut_percent ?? 60,
           admin_upi_id: d.config.admin_upi_id || "",
@@ -789,8 +831,9 @@ export default function AdminPortalPage() {
   const unreadSupportCount = supportMessages.filter((m) => m.sender === "user" && !m.read).length;
   const filteredUsers = usersList.filter(
     (u) =>
-      u.username.toLowerCase().includes(userSearch.toLowerCase()) ||
-      u.user_id.includes(userSearch)
+      (u.username || "").toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.first_name || "").toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.user_id || "").includes(userSearch)
   );
 
   return (
@@ -878,19 +921,19 @@ export default function AdminPortalPage() {
               </div>
 
               <div className="glass-card rounded-2xl p-4 border border-white">
-                <span className="text-xs font-semibold text-sky-700">Circulating Coins</span>
-                <div className="text-2xl font-black text-sky-950 mt-1">
-                  {usersList.reduce((acc, u) => acc + u.balance, 0).toLocaleString()}
+                <span className="text-xs font-semibold text-sky-700">Circulating User Balances</span>
+                <div className="text-2xl font-black text-emerald-700 mt-1">
+                  ₹{usersList.reduce((acc, u) => acc + (u.balance || 0), 0).toFixed(2)}
                 </div>
                 <span className="text-[11px] text-sky-700">
-                  ≈ ₹{(usersList.reduce((acc, u) => acc + u.balance, 0) / config.coins_per_inr).toFixed(2)} INR
+                  Total unpaid cash in user accounts
                 </span>
               </div>
 
               <div className="glass-card rounded-2xl p-4 border border-white">
                 <span className="text-xs font-semibold text-sky-700">Active Channel Tasks</span>
                 <div className="text-2xl font-black text-sky-950 mt-1">{tasks.length}</div>
-                <span className="text-[11px] text-emerald-600 font-bold">+50 Coins / Join</span>
+                <span className="text-[11px] text-emerald-600 font-bold">₹{(config.default_task_reward_inr ?? 1.50).toFixed(2)} / Join</span>
               </div>
             </div>
 
@@ -923,8 +966,8 @@ export default function AdminPortalPage() {
                       <div>
                         <div className="font-bold text-sky-950 flex items-center gap-2">
                           <span>@{item.username}</span>
-                          <span className="font-black text-emerald-700">₹{item.amount_inr}</span>
-                          <span className="text-[10px] text-sky-600">({item.coins} Coins)</span>
+                          <span className="font-black text-emerald-700">₹{Number(item.amount_inr ?? item.coins ?? 0).toFixed(2)}</span>
+                          <span className="text-[10px] text-sky-600 font-bold">({item.method})</span>
                         </div>
                         <div className="flex items-center gap-1.5 mt-1 font-mono text-sky-800">
                           <span>{item.payout_address}</span>
@@ -1012,10 +1055,18 @@ export default function AdminPortalPage() {
                           key={uid}
                           onClick={() => {
                             setSelectedChatUserId(uid);
-                            // Mark as read
+                            // Mark as read locally
                             setSupportMessages((prev) =>
                               prev.map((m) => (m.user_id === uid ? { ...m, read: true } : m))
                             );
+                            // Persist mark as read to server
+                            adminFetch("/api/sync", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                action: "admin_mark_messages_read",
+                                payload: { user_id: uid },
+                              }),
+                            }).catch(() => {});
                           }}
                           className={`p-3 rounded-xl cursor-pointer transition-all border text-xs space-y-1 ${
                             isSelected
@@ -1116,7 +1167,7 @@ export default function AdminPortalPage() {
                                 </span>
                               </div>
                               <div className="text-[11px] text-sky-800 font-semibold mt-0.5">
-                                Balance: <span className="font-black text-emerald-700">{activeUser.balance.toLocaleString()} Coins</span> (≈ ₹{((activeUser.balance || 0) / config.coins_per_inr).toFixed(2)})
+                                Balance: <span className="font-black text-emerald-700">₹{(activeUser.balance || 0).toFixed(2)} INR</span>
                               </div>
                             </div>
                           </div>
@@ -1497,9 +1548,9 @@ export default function AdminPortalPage() {
                   {pendingApprovals.map((req) => {
                     const adminRevenue = Math.round(req.price_inr * (adminProfitCut / 100));
                     const userPool = req.price_inr - adminRevenue;
-                    const calculatedCoins = Math.max(
-                      10,
-                      Math.round((userPool / req.target_members) * config.coins_per_inr)
+                    const calculatedRewardInr = Math.max(
+                      0.1,
+                      Math.round((userPool / req.target_members) * 100) / 100
                     );
 
                     return (
@@ -1581,7 +1632,7 @@ export default function AdminPortalPage() {
                               💰 Admin Profit: <span className="text-emerald-700 font-black">₹{adminRevenue}</span> ({adminProfitCut}%) • User Pool: <span className="text-sky-700 font-black">₹{userPool}</span>
                             </div>
                             <div className="text-[10px] text-amber-900">
-                              Each verified user join will receive: <strong>+{calculatedCoins} Coins</strong>
+                              Each verified user join will receive: <strong>+₹{calculatedRewardInr.toFixed(2)} INR</strong>
                             </div>
                           </div>
 
@@ -1666,8 +1717,13 @@ export default function AdminPortalPage() {
                       </div>
 
                       <div className="text-[11px] text-sky-700">
-                        Amount: <strong>{w.coins} Coins</strong> (₹{w.amount_inr} INR) • Requested:{" "}
+                        Amount: <strong className="text-emerald-700 font-black">₹{Number(w.amount_inr ?? w.coins ?? 0).toFixed(2)} INR</strong> • Requested:{" "}
                         {new Date(w.requested_at).toLocaleString()}
+                        {w.utr_number && (
+                          <span className="block mt-0.5 font-mono text-emerald-800 font-bold">
+                            UTR / Bank Ref: {w.utr_number}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1720,9 +1776,9 @@ export default function AdminPortalPage() {
                   <tr className="border-b border-sky-200 text-sky-800 font-bold">
                     <th className="pb-2">User ID</th>
                     <th className="pb-2">Username</th>
-                    <th className="pb-2">Coin Balance</th>
+                    <th className="pb-2">Cash Balance (₹)</th>
                     <th className="pb-2">Completed Tasks</th>
-                    <th className="pb-2">Total Paid</th>
+                    <th className="pb-2">Total Paid (₹)</th>
                     <th className="pb-2 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -1735,20 +1791,37 @@ export default function AdminPortalPage() {
                     </tr>
                   ) : (
                     filteredUsers.map((u) => (
-                    <tr key={u.user_id} className="hover:bg-white/40">
+                    <tr key={u.user_id} className={`hover:bg-white/40 ${u.is_banned ? "bg-rose-50/50" : ""}`}>
                       <td className="py-2.5 font-mono text-sky-700">{u.user_id}</td>
-                      <td className="py-2.5 font-bold text-sky-950">@{u.username}</td>
-                      <td className="py-2.5 font-black text-sky-950">
-                        {u.balance} Coins (₹{(u.balance / config.coins_per_inr).toFixed(2)})
+                      <td className="py-2.5 font-bold text-sky-950">
+                        @{u.username}
+                        {u.is_banned && (
+                          <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-100 text-rose-700 uppercase">
+                            Banned
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 text-sky-700">{u.completed_tasks.length} tasks</td>
-                      <td className="py-2.5 text-emerald-700 font-bold">{u.total_withdrawn} Coins</td>
+                      <td className="py-2.5 font-black text-emerald-700">
+                        ₹{Number(u.balance ?? 0).toFixed(2)}
+                      </td>
+                      <td className="py-2.5 text-sky-700">{(u.completed_tasks || []).length} tasks</td>
+                      <td className="py-2.5 text-sky-900 font-bold">₹{Number(u.total_withdrawn ?? 0).toFixed(2)}</td>
                       <td className="py-2.5 text-right space-x-2">
                         <button
                           onClick={() => setSelectedUserForEdit(u)}
                           className="px-2.5 py-1 rounded-lg bg-sky-100 text-sky-800 font-bold hover:bg-sky-200 active:scale-95"
                         >
-                          Adjust Balance
+                          Adjust (₹)
+                        </button>
+                        <button
+                          onClick={() => handleToggleBan(u.user_id)}
+                          className={`px-2.5 py-1 rounded-lg font-bold text-xs active:scale-95 transition-colors ${
+                            u.is_banned
+                              ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                              : "bg-rose-100 text-rose-700 hover:bg-rose-200"
+                          }`}
+                        >
+                          {u.is_banned ? "Unban" : "Ban"}
                         </button>
                       </td>
                     </tr>
@@ -1763,24 +1836,44 @@ export default function AdminPortalPage() {
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
                 <div className="w-full max-w-sm glass-elevated rounded-2xl p-5 border border-white space-y-4">
                   <h4 className="text-sm font-bold text-sky-950">
-                    Adjust Balance: @{selectedUserForEdit.username}
+                    Adjust Cash Balance: @{selectedUserForEdit.username}
                   </h4>
                   <p className="text-xs text-sky-700">
-                    Current Balance: <strong>{selectedUserForEdit.balance} Coins</strong>
+                    Current Balance: <strong className="text-emerald-700">₹{Number(selectedUserForEdit.balance ?? 0).toFixed(2)}</strong>
                   </p>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-sky-900 mb-1">
+                      Adjustment Amount (₹ INR)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={adjustAmountInput}
+                      onChange={(e) => setAdjustAmountInput(e.target.value)}
+                      placeholder="e.g. 10, 50, 100"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-sky-200 text-sm font-bold text-sky-950 focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                    />
+                  </div>
 
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleAdjustBalance(selectedUserForEdit.user_id, coinAdjustment)}
-                      className="flex-1 btn-tactile-sky py-2 rounded-xl text-white font-bold text-xs"
+                      onClick={() => {
+                        const amt = Math.max(0.01, parseFloat(adjustAmountInput) || 10);
+                        handleAdjustBalance(selectedUserForEdit.user_id, amt);
+                      }}
+                      className="flex-1 btn-tactile-sky py-2 rounded-xl text-white font-bold text-xs active:scale-95"
                     >
-                      + Add {coinAdjustment} Coins
+                      + Add ₹{adjustAmountInput || "0"}
                     </button>
                     <button
-                      onClick={() => handleAdjustBalance(selectedUserForEdit.user_id, -coinAdjustment)}
-                      className="flex-1 py-2 rounded-xl bg-rose-100 text-rose-700 font-bold text-xs hover:bg-rose-200"
+                      onClick={() => {
+                        const amt = Math.max(0.01, parseFloat(adjustAmountInput) || 10);
+                        handleAdjustBalance(selectedUserForEdit.user_id, -amt);
+                      }}
+                      className="flex-1 py-2 rounded-xl bg-rose-100 text-rose-700 font-bold text-xs hover:bg-rose-200 active:scale-95"
                     >
-                      - Deduct {coinAdjustment} Coins
+                      - Deduct ₹{adjustAmountInput || "0"}
                     </button>
                   </div>
 
@@ -1841,11 +1934,12 @@ export default function AdminPortalPage() {
                 <input
                   type="number"
                   required
-                  min={10}
-                  placeholder="Reward Coins (Default 50)"
+                  step="0.1"
+                  min={0.1}
+                  placeholder="Reward ₹ INR (e.g. 1.50)"
                   value={newTaskReward === 0 ? "" : newTaskReward}
                   onChange={(e) =>
-                    setNewTaskReward(e.target.value === "" ? "" : Number(e.target.value))
+                    setNewTaskReward(e.target.value === "" ? "" : e.target.value)
                   }
                   className="px-3 py-2 rounded-xl bg-white/80 border border-sky-200 text-sky-950 font-bold"
                 />
@@ -1928,7 +2022,9 @@ export default function AdminPortalPage() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span className="font-bold text-amber-600">+{t.reward_coins} Coins</span>
+                        <span className="font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                          +₹{Number(t.reward_inr ?? t.reward_coins ?? 1.50).toFixed(2)}
+                        </span>
                         <span className="text-sky-700">{t.joined_count} Joins</span>
 
                         {/* 1-Click Pin / Unpin Toggle */}
@@ -2251,56 +2347,62 @@ export default function AdminPortalPage() {
 
               <div>
                 <label className="block font-bold text-sky-900 mb-1">
-                  Minimum Withdrawal Threshold (Coins)
+                  Minimum Withdrawal Threshold (₹ INR)
                 </label>
                 <input
                   type="text"
-                  inputMode="numeric"
-                  value={settingsInputs.min_withdrawal_coins}
+                  inputMode="decimal"
+                  value={settingsInputs.min_withdrawal_inr}
                   onChange={(e) => {
                     setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, min_withdrawal_coins: e.target.value });
+                    setSettingsInputs({ ...settingsInputs, min_withdrawal_inr: e.target.value });
                   }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
-                  placeholder="300"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-sky-900 mb-1">
-                  Coins per 1 INR (Conversion Rate)
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={settingsInputs.coins_per_inr}
-                  onChange={(e) => {
-                    setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, coins_per_inr: e.target.value });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
-                  placeholder="300"
+                  placeholder="10"
                 />
                 <span className="text-[10px] text-sky-600 block mt-0.5">
-                  e.g. 300 coins = ₹1 INR (or 200 coins = ₹1 INR)
+                  e.g. ₹10, ₹50, ₹100. Users must have at least this much in their cash balance to request a payout.
                 </span>
               </div>
 
               <div>
                 <label className="block font-bold text-sky-900 mb-1">
-                  Default Task Reward (Coins)
+                  TON Crypto Exchange Rate (₹ INR per 1 TON)
                 </label>
                 <input
                   type="text"
-                  inputMode="numeric"
-                  value={settingsInputs.default_task_reward}
+                  inputMode="decimal"
+                  value={settingsInputs.ton_rate_inr}
                   onChange={(e) => {
                     setIsSettingsDirty(true);
-                    setSettingsInputs({ ...settingsInputs, default_task_reward: e.target.value });
+                    setSettingsInputs({ ...settingsInputs, ton_rate_inr: e.target.value });
                   }}
                   className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
-                  placeholder="50"
+                  placeholder="500"
                 />
+                <span className="text-[10px] text-sky-600 block mt-0.5">
+                  e.g. ₹500 (1 TON = ₹500 INR). Used when user chooses TON Wallet payout.
+                </span>
+              </div>
+
+              <div>
+                <label className="block font-bold text-sky-900 mb-1">
+                  Default Task Reward (₹ INR per verified member join)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={settingsInputs.default_task_reward_inr}
+                  onChange={(e) => {
+                    setIsSettingsDirty(true);
+                    setSettingsInputs({ ...settingsInputs, default_task_reward_inr: e.target.value });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-white/80 border border-sky-200 font-bold text-sky-950"
+                  placeholder="1.50"
+                />
+                <span className="text-[10px] text-sky-600 block mt-0.5">
+                  Exact cash reward given to a user when joining an admin sponsor channel (e.g. ₹1.50, ₹2.00).
+                </span>
               </div>
 
               <div>
@@ -2606,25 +2708,25 @@ export default function AdminPortalPage() {
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-200">
                   <span className="text-[11px] font-bold text-sky-700 block">Current Balance</span>
-                  <span className="text-base font-black text-sky-950">
-                    {inspectedUser.balance.toLocaleString()} Coins
+                  <span className="text-base font-black text-emerald-700">
+                    ₹{Number(inspectedUser.balance || 0).toFixed(2)}
                   </span>
                   <span className="text-[10px] text-sky-600 block">
-                    ≈ ₹{(inspectedUser.balance / config.coins_per_inr).toFixed(2)}
+                    Direct ₹ INR
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
                   <span className="text-[11px] font-bold text-emerald-700 block">Lifetime Earned</span>
                   <span className="text-base font-black text-emerald-950">
-                    {inspectedUser.total_earned.toLocaleString()} Coins
+                    ₹{Number(inspectedUser.total_earned || 0).toFixed(2)}
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200">
                   <span className="text-[11px] font-bold text-purple-700 block">Total Withdrawn</span>
                   <span className="text-base font-black text-purple-950">
-                    {inspectedUser.total_withdrawn.toLocaleString()} Coins
+                    ₹{Number(inspectedUser.total_withdrawn || 0).toFixed(2)}
                   </span>
                 </div>
               </div>

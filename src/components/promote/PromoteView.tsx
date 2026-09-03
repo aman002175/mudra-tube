@@ -340,7 +340,13 @@ export const PromoteView: React.FC<PromoteViewProps> = ({
             required
             placeholder="e.g. @MyCryptoChannel or https://t.me/..."
             value={channelInput}
-            onChange={(e) => setChannelInput(e.target.value)}
+            onChange={(e) => {
+              setChannelInput(e.target.value);
+              if (botAdminVerified || botAdminConfirmed) {
+                setBotAdminVerified(false);
+                setBotAdminConfirmed(false);
+              }
+            }}
             className="w-full px-3.5 py-2.5 rounded-xl bg-white/80 border border-sky-200 text-xs text-sky-950 placeholder-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400 font-medium"
           />
         </div>

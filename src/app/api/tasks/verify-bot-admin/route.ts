@@ -84,7 +84,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Get bot id from getMe
-    const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`, { cache: "no-store" });
+    const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
     const meData = await meRes.json();
     if (!meData.ok) {
       return NextResponse.json(
@@ -99,7 +102,7 @@ export async function POST(req: NextRequest) {
       `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${encodeURIComponent(
         formattedChannel
       )}&user_id=${botId}`,
-      { cache: "no-store" }
+      { cache: "no-store", signal: AbortSignal.timeout(8000) }
     );
     const memberData = await memberRes.json();
 
@@ -128,6 +131,10 @@ export async function POST(req: NextRequest) {
       });
     }
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    console.error("Bot admin verification error:", err);
+    return NextResponse.json(
+      { success: false, error: "Failed to communicate with Telegram Bot API. Please check your connection." },
+      { status: 500 }
+    );
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   User,
   Copy,
@@ -48,6 +48,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [tonInput, setTonInput] = useState(user.saved_ton_address || "");
 
   const [saveSuccessToast, setSaveSuccessToast] = useState<string | null>(null);
+  const [saveErrorToast, setSaveErrorToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUpiInput(user.saved_upi_id || "");
+  }, [user.saved_upi_id]);
+
+  useEffect(() => {
+    setTonInput(user.saved_ton_address || "");
+  }, [user.saved_ton_address]);
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(user.user_id);
@@ -57,9 +66,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const handleSaveUpi = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!upiInput.trim()) return;
+    const cleanUpi = upiInput.trim();
+    if (!cleanUpi) return;
+
+    const upiRegex = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
+    if (!upiRegex.test(cleanUpi)) {
+      setSaveErrorToast("Invalid UPI format. Example: user@okhdfcbank or 9876543210@paytm");
+      setTimeout(() => setSaveErrorToast(null), 3500);
+      return;
+    }
+
     if (onUpdateSavedAddresses) {
-      onUpdateSavedAddresses(upiInput.trim(), user.saved_ton_address);
+      onUpdateSavedAddresses(cleanUpi, user.saved_ton_address);
     }
     setIsEditingUpi(false);
     setSaveSuccessToast("UPI ID saved to database successfully!");
@@ -78,9 +96,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const handleSaveTon = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tonInput.trim()) return;
+    const cleanTon = tonInput.trim();
+    if (!cleanTon) return;
+
+    const friendlyRegex = /^(EQ|UQ|kQ|0Q)[a-zA-Z0-9_\-]{46}$/;
+    const rawRegex = /^(-1|0):[a-fA-F0-9]{64}$/;
+    if (!friendlyRegex.test(cleanTon) && !rawRegex.test(cleanTon)) {
+      setSaveErrorToast("Invalid TON address format (starts with EQ, UQ, kQ, 0Q or raw 0:).");
+      setTimeout(() => setSaveErrorToast(null), 3500);
+      return;
+    }
+
     if (onUpdateSavedAddresses) {
-      onUpdateSavedAddresses(user.saved_upi_id, tonInput.trim());
+      onUpdateSavedAddresses(user.saved_upi_id, cleanTon);
     }
     setIsEditingTon(false);
     setSaveSuccessToast("TON address saved to database successfully!");
@@ -390,11 +418,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       <div className="grid grid-cols-2 gap-3">
         <div className="p-4 rounded-2xl glass-card border border-white/80 space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-sky-700 font-semibold">
-            <Coins className="w-4 h-4 text-amber-500" />
+            <span className="font-extrabold text-emerald-600">₹</span>
             <span>Lifetime Earned</span>
           </div>
-          <div className="text-lg font-black text-sky-950">
-            {user.total_earned.toLocaleString()}
+          <div className="text-lg font-black text-emerald-700">
+            ₹{Number(user.total_earned ?? 0).toFixed(2)}
           </div>
         </div>
 
@@ -404,7 +432,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <span>Completed Tasks</span>
           </div>
           <div className="text-lg font-black text-sky-950">
-            {user.completed_tasks.length}
+            {(user.completed_tasks || []).length}
           </div>
         </div>
       </div>
@@ -419,7 +447,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             Official Anti-Cheat Protected
           </h4>
           <p className="text-[11px] text-sky-700/80">
-            All coin rewards and Telegram tasks are verified via official Telegram Bot API.
+            All cash payouts and channel tasks are verified via official Telegram Bot API.
           </p>
         </div>
       </div>

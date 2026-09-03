@@ -7,6 +7,7 @@ import {
   sanitizeString,
   detectSuspiciousPatterns,
   logSecurityIncident,
+  validateTelegramChannel,
 } from "@/lib/security";
 
 export async function POST(req: NextRequest) {
@@ -64,6 +65,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const chanValidation = validateTelegramChannel(channelId);
+    const targetChannel = chanValidation.valid ? chanValidation.formatted : `@${cleanChannel.replace(/^@/, "")}`;
+
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
     // If bot token is not yet configured, gracefully provide demo simulation
@@ -76,12 +80,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Call official Telegram Bot API: getChatMember
+    // Call official Telegram Bot API: getChatMember with timeout
     const tgUrl = `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${encodeURIComponent(
-      cleanChannel
+      targetChannel
     )}&user_id=${encodeURIComponent(userVal.value)}`;
 
-    const response = await fetch(tgUrl, { cache: "no-store" });
+    const response = await fetch(tgUrl, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
     const data = await response.json();
 
     if (!data.ok) {
@@ -116,8 +123,9 @@ export async function POST(req: NextRequest) {
       );
     }
   } catch (error: any) {
+    console.error("Channel verification error:", error);
     return NextResponse.json(
-      { error: error.message || "Internal server error during verification" },
+      { error: "Failed to communicate with Telegram API. Please try again." },
       { status: 500 }
     );
   }
