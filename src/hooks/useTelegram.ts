@@ -69,11 +69,24 @@ export function useTelegram() {
         setUser(null);
         setIsTelegram(false);
       }
+
+      // Retry reading start_param after a short delay (some Telegram clients load it late)
+      const retryTimer = setTimeout(() => {
+        if (!tg.initDataUnsafe?.start_param) {
+          try {
+            const lateStart = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
+            if (lateStart) setStartParam(lateStart);
+          } catch {}
+        }
+      }, 500);
+
+      setIsReady(true);
+      return () => clearTimeout(retryTimer);
     } else {
       setUser(null);
       setIsTelegram(false);
+      setIsReady(true);
     }
-    setIsReady(true);
   }, []);
 
   const triggerHaptic = useCallback(

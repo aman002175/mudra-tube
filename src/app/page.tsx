@@ -36,6 +36,25 @@ import {
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc } from "firebase/firestore";
 
+// Capture start_param from URL immediately before React renders
+function getInitialStartParam(): string {
+  if (typeof window === "undefined") return "";
+  // Check Telegram WebApp initData for start_param
+  try {
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg?.initDataUnsafe?.start_param) {
+      return String(tg.initDataUnsafe.start_param);
+    }
+  } catch {}
+  // Fallback: check URL search params (some Telegram clients use this)
+  try {
+    const url = new URL(window.location.href);
+    const sp = url.searchParams.get("start") || url.searchParams.get("startapp");
+    if (sp) return sp;
+  } catch {}
+  return "";
+}
+
 export default function MudraTubeApp() {
   const { user: tgUser, initData, isTelegram, isReady, startParam, triggerHaptic, triggerNotificationHaptic, openLink } = useTelegram();
 
@@ -54,6 +73,26 @@ export default function MudraTubeApp() {
   const [supportMessages, setSupportMessages] = useState<SupportChatMessage[]>(initialSupportMessages);
   const [totalUsersCount, setTotalUsersCount] = useState<number>(0);
   const [myReferrals, setMyReferrals] = useState<UserProfile[]>([]);
+
+  // CRITICAL: Capture start_param IMMEDIATELY from URL/Telegram before React renders
+  // This prevents the race condition where startParam is empty on first useEffect run
+  const startParamRef = useRef<string>(getInitialStartParam());
+  // Also update ref when hook provides the value (in case it arrives later)
+  useEffect(() => {
+    if (startParam && !startParamRef.current) {
+      startParamRef.current = startParam;
+    }
+  }, [startParam]);
+  // Also check localStorage for previously saved referral code
+  useEffect(() => {
+    if (!startParamRef.current && typeof window !== "undefined") {
+      const saved = localStorage.getItem("mudratube_ref_by");
+      if (saved) startParamRef.current = saved;
+    }
+  }, []);
+
+  // Prevent double connect_user calls
+  const hasConnectedRef = useRef<boolean>(false);
 
   // Secure API fetch helper with Telegram InitData signature
   const apiFetch = (url: string, options: RequestInit = {}) => {
@@ -74,7 +113,16 @@ export default function MudraTubeApp() {
       const actualUsername = tgUser.username || `tg_${actualId}`;
       const actualFirstName = tgUser.first_name || "Earner";
 
-      // Connect to Server /api/sync
+      // Only connect once to prevent duplicate referrals
+      if (!hasConnectedRef.current) {
+        hasConnectedRef.current = true;
+
+        // Connect to Server /api/sync — use ref for reliable start_param
+        const effectiveReferrer = startParamRef.current || startParam || "";
+      // Save to localStorage so it persists across page reloads
+      if (effectiveReferrer && typeof window !== "undefined") {
+        localStorage.setItem("mudratube_ref_by", effectiveReferrer);
+      }
       apiFetch("/api/sync", {
         method: "POST",
         body: JSON.stringify({
@@ -83,7 +131,7 @@ export default function MudraTubeApp() {
             user_id: actualId,
             username: actualUsername,
             first_name: actualFirstName,
-            referred_by: startParam,
+            referred_by: effectiveReferrer,
           },
         }),
       })
@@ -95,6 +143,7 @@ export default function MudraTubeApp() {
           }
         })
         .catch(() => {});
+      } // end hasConnectedRef guard
 
       // Fetch initial state for tasks, withdrawals, support messages
       const fetchUserData = () => {
@@ -194,7 +243,7 @@ export default function MudraTubeApp() {
       const interval = setInterval(fetchGlobalData, 4000);
       return () => clearInterval(interval);
     }
-  }, [isReady, tgUser]);
+  }, [isReady, tgUser, startParam]);
 
   // Handle Tab Switching with Haptics
   const handleSelectTab = (tab: TabType) => {

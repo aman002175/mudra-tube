@@ -427,6 +427,40 @@ export async function POST(request: NextRequest) {
           }
           if (cleanUsername) existingUser.username = cleanUsername;
           if (cleanFirstName) existingUser.first_name = cleanFirstName;
+
+          // CRITICAL: If user was created without referral but now has start_param, update it
+          const incomingReferrer = payload.referred_by ? String(payload.referred_by).trim() : "";
+          if (
+            incomingReferrer &&
+            !existingUser.referred_by &&
+            incomingReferrer !== userId &&
+            store.users.has(incomingReferrer)
+          ) {
+            existingUser.referred_by = incomingReferrer;
+            // Increment referrer's count
+            const referrer = store.users.get(incomingReferrer);
+            if (referrer) {
+              referrer.referrals_count = (referrer.referrals_count || 0) + 1;
+              // Apply flat bonus if enabled
+              if (store.config.referral_system_enabled && store.config.referral_reward_type === 'flat_bonus') {
+                const bonus = Number(store.config.referral_reward_amount) || 0;
+                if (bonus > 0) {
+                  const refBalanceBefore = referrer.balance;
+                  referrer.balance = Math.round((referrer.balance + bonus) * 100) / 100;
+                  referrer.referral_earnings = Math.round(((referrer.referral_earnings || 0) + bonus) * 100) / 100;
+                  addTransaction({
+                    user_id: incomingReferrer,
+                    type: "referral_bonus",
+                    amount_inr: bonus,
+                    balance_before: refBalanceBefore,
+                    balance_after: referrer.balance,
+                    reference_id: userId,
+                    note: `Referral bonus (late binding) for ${cleanUsername || userId}`,
+                  });
+                }
+              }
+            }
+          }
         }
 
         // Optional saved payout addresses validation
